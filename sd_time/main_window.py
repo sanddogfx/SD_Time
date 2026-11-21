@@ -4,8 +4,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu,
     QMessageBox, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
@@ -15,6 +15,7 @@ from .db import Database
 from .dialogs import EntryDialog, PomodoroPrompt
 from .hotkey import GlobalHotkey
 from .mini import MiniTimer
+from .updates import CHECK_EVERY, RELEASES_URL, UpdateChecker
 from .icons import color_icon, logo_pixmap, make_icon, nav_icon
 from .pages.week import WeekPage
 from .pages.manage import ClientsPage, ProjectsPage, SettingsPage
@@ -77,6 +78,19 @@ class MainWindow(QMainWindow):
         self.mini_hotkey = GlobalHotkey(int(self.winId()), self, hotkey_id=0x5D72)
         self.mini_hotkey.activated.connect(self.toggle_mini)
         self.mini_hotkey.register(self.mini_hotkey_text())
+
+        # Update check: quietly once a day (if allowed), or on demand from Settings.
+        self.update_info: dict = {"state": "idle"}
+        self.updates = UpdateChecker(self)
+        self.updates.available.connect(self._update_available)
+        self.updates.up_to_date.connect(lambda v: self._update_result("latest", version=v))
+        self.updates.failed.connect(lambda msg: self._update_result("failed", message=msg))
+        self.tray.messageClicked.connect(self._tray_message_clicked)
+        QTimer.singleShot(15000, self.maybe_check_updates)
+        self._update_timer = QTimer(self)
+        self._update_timer.setInterval(3600 * 1000)        # long-running in the tray: look hourly
+        self._update_timer.timeout.connect(self.maybe_check_updates)
+        self._update_timer.start()
 
         self.ticker = QTimer(self)
         self.ticker.setInterval(1000)
@@ -185,6 +199,10 @@ class MainWindow(QMainWindow):
         self.mini_action.toggled.connect(self.set_mini_visible)
         self.tray_menu.addAction(self.mini_action)
         self.tray_menu.addSeparator()
+        self.update_action = QAction("Update available…", self)
+        self.update_action.triggered.connect(self.open_update_page)
+        self.update_action.setVisible(False)
+        self.tray_menu.addAction(self.update_action)
         for text, slot in (("Open SD Time", self.show_window),
                            ("Insights", lambda: (self.show_window(), self.go(self.pages[3])))):
             act = QAction(text, self)
@@ -458,7 +476,7 @@ class MainWindow(QMainWindow):
             prompt.deleteLater()
 
     def _alert(self, sound_kind: str, title: str, text: str) -> None:
-        self.tray.showMessage(title, text, self.icon_run, 6000)
+        self._tray_say(title, text, self.icon_run, 6000)
         QApplication.alert(self, 0)   # flash the taskbar button
         if self.pomo.config.sound:
             play_sound(sound_kind, self._data_dir())
@@ -492,10 +510,10 @@ class MainWindow(QMainWindow):
             entry = self.running
             self.tracker._desc_done()
             self.stop()
-            self.tray.showMessage("Timer stopped", f"{self._entry_title(entry)} · "
+            self._tray_say("Timer stopped", f"{self._entry_title(entry)} · "
                                   f"{fmt_clock(self.db.duration(entry))}", self.icon_idle, 2500)
         elif self._start_from_draft_or_last():
-            self.tray.showMessage("Timer started", self._entry_title(self.running),
+            self._tray_say("Timer started", self._entry_title(self.running),
                                   self.icon_run, 2500)
 
     @staticmethod
@@ -622,6 +640,62 @@ class MainWindow(QMainWindow):
             return f"{seconds // 60:02d}:{seconds % 60:02d}"
         return f"{seconds // 3600}:{seconds % 3600 // 60:02d}"
 
+    # ============================================================== updates
+    _tray_message = None      # what a click on the last tray balloon should open
+
+    def _tray_say(self, title, text, icon, msecs, kind=None) -> None:
+        self._tray_message = kind
+        self.tray.showMessage(title, text, icon, msecs)
+
+    def auto_update_check(self) -> bool:
+        return self.settings.value("updates/auto", True, type=bool)
+
+    def maybe_check_updates(self) -> None:
+        """Automatic check: only if allowed and the last one is a day old."""
+        last = self.settings.value("updates/last_check", 0, type=int)
+        if self.auto_update_check() and time.time() - last >= CHECK_EVERY:
+            self.check_updates(manual=False)
+
+    def check_updates(self, manual: bool = True) -> None:
+        if self.updates.busy:
+            return
+        self._update_manual = manual
+        self.settings.setValue("updates/last_check", int(time.time()))
+        self.update_info = {"state": "checking"}
+        self._update_pages()
+        self.updates.check()
+
+    def _update_available(self, version: str, url: str) -> None:
+        self.update_info = {"state": "available", "version": version, "url": url}
+        self.update_action.setText(f"Update to SD Time {version}…")
+        self.update_action.setVisible(True)
+        # Tell once per version (or when asked); the tray item and Settings keep showing it.
+        if getattr(self, "_update_manual", False) or \
+                self.settings.value("updates/notified", "", type=str) != version:
+            self.settings.setValue("updates/notified", version)
+            self._tray_say(f"SD Time {version} is available",
+                                  "Click to open the download page.", self.icon_idle, 8000, kind="update")
+        self._update_pages()
+
+    def _update_result(self, state: str, **info) -> None:
+        if state == "failed" and self.update_info.get("state") == "available":
+            return                                    # keep showing a known update
+        self.update_info = {"state": state, **info}
+        self._update_pages()
+
+    def _update_pages(self) -> None:
+        settings_page = self.pages[-1]
+        if hasattr(settings_page, "show_update_state"):
+            settings_page.show_update_state()
+
+    def open_update_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(self.update_info.get("url") or RELEASES_URL))
+
+    def _tray_message_clicked(self) -> None:
+        if self._tray_message == "update":
+            self.open_update_page()
+        self._tray_message = None
+
     # ============================================================ mini timer
     def set_mini_visible(self, on: bool) -> None:
         if on == self.mini.isVisible():
@@ -685,7 +759,7 @@ class MainWindow(QMainWindow):
                 QSystemTrayIcon.isSystemTrayAvailable():
             self.hide()
             if not self.settings.value("tray_hint_shown", False, type=bool):
-                self.tray.showMessage("SD Time is still running",
+                self._tray_say("SD Time is still running",
                                       "It lives in the tray. Right-click the icon to quit.",
                                       self.icon_idle, 4000)
                 self.settings.setValue("tray_hint_shown", True)

@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-installer-8db837?style=for-the-badge"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-555?style=for-the-badge">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.5.0-555?style=for-the-badge">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-555?style=for-the-badge">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-555?style=for-the-badge"></a>
 </p>
@@ -94,7 +94,9 @@ Running a newer installer updates in place. Uninstall from **Settings → Apps**
 ## Your data
 
 Everything is stored locally in `%APPDATA%\SD_Time` — a single SQLite database plus a settings file.
-Nothing is sent anywhere. To back up, copy that folder.
+Your data is never sent anywhere. To back up, copy that folder.
+
+**Update check.** Once a day SD Time asks GitHub for the number of the latest release (nothing else is sent). If there is a newer one, a tray notification links to its download page; nothing is installed on its own. Turn it off in **Settings → About**, or check by hand there.
 
 ## Tips
 

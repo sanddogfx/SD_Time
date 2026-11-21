@@ -5,6 +5,22 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-21
+
+Stay up to date.
+
+### Added
+- **Update check**: once a day SD Time asks GitHub for the latest release number. A newer
+  version shows a tray notification and an *Update to …* item in the tray menu; both open
+  the release page. Nothing is downloaded or installed on its own, and only the version
+  question is sent. Each version is announced once.
+- **Settings → About**: version, links to the GitHub page, releases and issues, *Check for
+  updates* and the automatic-check switch.
+
+### Changed
+- Settings: *Save* moved to the page header; the page scrolls on short windows.
+- Self-test of the built app also checks that HTTPS (Qt TLS plugin) is bundled.
+
 ## [0.4.0] - 2026-11-21
 
 Tasks in plain sight, flatter look.

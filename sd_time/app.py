@@ -121,6 +121,8 @@ def _run_selftest(app, window, db, target: Path) -> int:
                 "logo": logo_pixmap(64) is not None,
                 "logo_small": logo_pixmap(24) is not None,
                 "chevron": (assets_dir() / "ui" / "chevron-down.svg").exists(),
+                # The update check needs HTTPS: Qt's TLS plugin must be in the build.
+                "tls": __import__("PySide6.QtNetwork", fromlist=["QSslSocket"]).QSslSocket.supportsSsl(),
             }
             p = db.add_project("Selftest")
             window.start(p, None, "selftest")

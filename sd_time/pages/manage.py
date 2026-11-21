@@ -8,8 +8,8 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QFormLayout, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
     QSpinBox,
-    QLineEdit, QMenu, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-    QWidget,
+    QLineEdit, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from .. import __version__, autostart
@@ -18,6 +18,7 @@ from ..icons import color_icon, timer_pixmap
 from ..theme import C
 from ..util import fmt_clock, fmt_money, fmt_rate
 from ..pomodoro import KINDS
+from ..updates import RELEASES_URL, REPO_URL
 from ..widgets import (RateEdit, Stepper, bulk_fill, button, card, confirm, label,
                        segmented, show_error)
 
@@ -509,7 +510,6 @@ class SettingsPage(QWidget):
         dir_row.addWidget(button("Open folder", self._open_dir))
         dir_row.addStretch(1)
         form.addRow("Data folder", dir_row)
-        form.addRow("Version", label(f"SD Time {__version__}", "Muted"))
 
         # ---- Pomodoro
         self.pomo_focus = Stepper(1, 180, " min")
@@ -551,22 +551,74 @@ class SettingsPage(QWidget):
                             "Only focus time is tracked; when it ends the entry stops and the break "
                             "starts.", "Small"))
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(30, 26, 30, 20)
-        root.setSpacing(14)
-        root.addWidget(label("Settings", "H1"))
+        # ---- About: version, GitHub, updates
+        about_box = card()
+        al = QVBoxLayout(about_box)
+        al.setContentsMargins(20, 20, 20, 20)
+        al.setSpacing(10)
+        about_title = QHBoxLayout()
+        about_title.addWidget(label("About", "Big"))
+        about_title.addStretch(1)
+        about_title.addWidget(label(f"SD Time {__version__}", "Muted"))
+        al.addLayout(about_title)
+        links = QHBoxLayout()
+        links.setSpacing(4)
+        for text, url in (("GitHub page", REPO_URL), ("Releases", RELEASES_URL),
+                          ("Report a problem", f"{REPO_URL}/issues")):
+            links.addWidget(button(text, lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)), "Link"))
+        links.addStretch(1)
+        al.addLayout(links)
+        upd_row = QHBoxLayout()
+        self.check_btn = button("Check for updates", lambda: self.ctl.check_updates(manual=True))
+        self.download_btn = button("Download", lambda: self.ctl.open_update_page(), "Primary")
+        self.download_btn.hide()
+        self.update_status = label("", "Muted")
+        self.update_status.setWordWrap(True)
+        upd_row.addWidget(self.check_btn)
+        upd_row.addWidget(self.download_btn)
+        upd_row.addWidget(self.update_status, 1)
+        al.addLayout(upd_row)
+        self.auto_updates = QCheckBox("Check for updates automatically (once a day)")
+        al.addWidget(self.auto_updates)
+        al.addWidget(label("Only asks GitHub for the number of the latest version. Nothing about you "
+                           "or your time data is sent. Updates are never installed on their own: "
+                           "you download the new installer from the release page.", "Small"))
+
+        right = QVBoxLayout()
+        right.setSpacing(14)
+        right.addWidget(pomo_box)
+        right.addStretch(1)
+
+        # The page scrolls when the window is short (two tall cards side by side).
+        content = QWidget()
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(30, 26, 30, 20)
+        inner.setSpacing(14)
+        head = QHBoxLayout()
+        head.addWidget(label("Settings", "H1"))
+        head.addStretch(1)
+        head.addWidget(button("Save", self.save, "Primary"))    # in view however long the page is
+        inner.addLayout(head)
         cards = QHBoxLayout()
         cards.setSpacing(14)
-        cards.addWidget(box, 3)
-        cards.addWidget(pomo_box, 2)
-        root.addLayout(cards)
-        for hint in self.findChildren(QLabel, "Small"):
+        left = QVBoxLayout()
+        left.setSpacing(14)
+        left.addWidget(box)
+        left.addWidget(about_box)
+        left.addStretch(1)
+        cards.addLayout(left, 3)
+        cards.addLayout(right, 2)
+        inner.addLayout(cards)
+        for hint in content.findChildren(QLabel, "Small"):
             hint.setWordWrap(True)
-        save_row = QHBoxLayout()
-        save_row.addWidget(button("Save", self.save, "Primary"))
-        save_row.addStretch(1)
-        root.addLayout(save_row)
-        root.addStretch(1)
+        inner.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(scroll)
 
     def refresh(self) -> None:
         self.currency.setText(self.db.currency)
@@ -577,6 +629,8 @@ class SettingsPage(QWidget):
         self.close_to_tray.setChecked(self.ctl.settings.value("close_to_tray", True, type=bool))
         self.autostart.setChecked(autostart.is_enabled())
         self.data_dir.setText(str(Path(self.ctl.settings.fileName()).parent))
+        self.auto_updates.setChecked(self.ctl.auto_update_check())
+        self.show_update_state()
         cfg = self.ctl.pomodoro_config()
         self._lengths = {k: self.ctl.timer_lengths(k) for k in KINDS}
         self._kind = cfg.kind
@@ -602,6 +656,23 @@ class SettingsPage(QWidget):
         self.kind_blurb.setText(KINDS[self._kind].blurb)
         self.pomo_icon.setPixmap(timer_pixmap(self._kind, 26, self.devicePixelRatioF()))
 
+    def show_update_state(self) -> None:
+        info = self.ctl.update_info
+        state = info.get("state")
+        self.check_btn.setEnabled(state != "checking")
+        self.download_btn.setVisible(state == "available")
+        if state == "available":
+            self.download_btn.setText(f"Download {info['version']}")
+            self.update_status.setText(f"SD Time {info['version']} is available.")
+        elif state == "checking":
+            self.update_status.setText("Checking…")
+        elif state == "latest":
+            self.update_status.setText("You have the latest version.")
+        elif state == "failed":
+            self.update_status.setText(f"Couldn't check: {info.get('message', 'unknown error')}.")
+        else:
+            self.update_status.setText("")
+
     def _open_dir(self) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(self.data_dir.text()))
 
@@ -614,6 +685,7 @@ class SettingsPage(QWidget):
         self.db.set_setting("currency", self.currency.text().strip() or "USD")
         self.db.set_setting("default_rate", rate)
         self.ctl.settings.setValue("close_to_tray", self.close_to_tray.isChecked())
+        self.ctl.settings.setValue("updates/auto", self.auto_updates.isChecked())
         try:
             autostart.set_enabled(self.autostart.isChecked())
         except OSError as exc:
