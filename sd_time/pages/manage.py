@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QMenu, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .. import __version__
+from .. import __version__, autostart
 from ..dialogs import ClientDialog, ProjectDialog
 from ..icons import color_icon, tomato_pixmap
 from ..theme import C
@@ -306,6 +306,7 @@ class SettingsPage(QWidget):
         self.hotkey.setMaximumSequenceLength(1)
         self.hotkey.setFixedWidth(200)
         self.close_to_tray = QCheckBox("Closing the window keeps SD Time running in the tray")
+        self.autostart = QCheckBox("Start SD Time when Windows starts (in the tray)")
         self.data_dir = label("", "Muted")
         self.data_dir.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
@@ -325,6 +326,7 @@ class SettingsPage(QWidget):
         form.addRow("", label("Works from any app. Starts what is typed in the timer bar, "
                               "or continues the last entry.", "Small"))
         form.addRow("", self.close_to_tray)
+        form.addRow("", self.autostart)
         dir_row = QHBoxLayout()
         dir_row.addWidget(self.data_dir)
         dir_row.addWidget(button("Open folder", self._open_dir))
@@ -383,6 +385,7 @@ class SettingsPage(QWidget):
         self.default_rate.setText("" if rate is None else f"{rate:g}")
         self.hotkey.setKeySequence(QKeySequence(self.ctl.hotkey_text()))
         self.close_to_tray.setChecked(self.ctl.settings.value("close_to_tray", True, type=bool))
+        self.autostart.setChecked(autostart.is_enabled())
         self.data_dir.setText(str(Path(self.ctl.settings.fileName()).parent))
         cfg = self.ctl.pomodoro_config()
         self.pomo_focus.setValue(cfg.focus // 60)
@@ -404,6 +407,10 @@ class SettingsPage(QWidget):
         self.db.set_setting("currency", self.currency.text().strip() or "USD")
         self.db.set_setting("default_rate", rate)
         self.ctl.settings.setValue("close_to_tray", self.close_to_tray.isChecked())
+        try:
+            autostart.set_enabled(self.autostart.isChecked())
+        except OSError as exc:
+            show_error(self, f"Couldn't change autostart: {exc}")
         s = self.ctl.settings
         s.setValue("pomodoro/focus_min", self.pomo_focus.value())
         s.setValue("pomodoro/short_break_min", self.pomo_short.value())

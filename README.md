@@ -3,7 +3,24 @@
 Desktop time tracker for Windows: timer in the system tray, clients → projects → tasks,
 hourly rates, calendar, timesheet and reports with Excel export.
 
-## Run
+## Install
+
+Run `SD_Time_Setup_<version>.exe` (from `dist\` after a build). No admin rights needed:
+it installs for the current user, adds a Start menu shortcut, and optionally a desktop
+shortcut and "Start with Windows". Running a newer installer updates in place.
+Uninstall from Settings → Apps; your time data stays unless you choose to delete it.
+
+## Build the installer
+
+```powershell
+.\build.ps1
+```
+
+Builds `dist\SD Time\SD Time.exe` (PyInstaller, no Python needed to run it), self-tests it,
+then `dist\SD_Time_Setup_<version>.exe` (Inno Setup 6: `winget install JRSoftware.InnoSetup`).
+`.\build.ps1 -NoInstaller` builds only the app folder.
+
+## Run from source
 
 Double-click `SD_Time.bat`. Start hidden in the tray: `SD_Time.bat --hidden`.
 

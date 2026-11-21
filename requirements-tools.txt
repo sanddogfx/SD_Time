@@ -1,2 +1,3 @@
 # Only for tools/make_logo_svg.py (reading vector paths from .ai files). The app doesn't need it.
 pymupdf>=1.24
+pyinstaller>=6.0   # build.ps1 (standalone app)
