@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>A calm desktop time tracker for Windows.</b><br>
-  Tray timer, clients → projects → tasks, hourly rates, calendar, timesheet, reports and a Pomodoro mode.<br>
+  Tray timer, clients → projects → tasks, hourly rates, calendar, timesheet and insights,<br>
+  plus a focus timer in three flavours: 🍅 tomato, 🥔 potato and 🥒 cucumber.<br>
   Everything stays on your computer.
 </p>
 
@@ -14,6 +15,7 @@
   <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-installer-8db837?style=for-the-badge"></a>
   <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-555?style=for-the-badge">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-555?style=for-the-badge">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-555?style=for-the-badge"></a>
 </p>
 
 <p align="center">
@@ -21,6 +23,24 @@
 </p>
 
 > Screenshots use made-up demo data.
+
+## 🍅 🥔 🥒 Pick your focus timer
+
+A Pomodoro timer is good, but not every task fits 25 minutes. SD Time has three:
+
+<p align="center">
+  <img src="docs/screenshots/timers.png" alt="Pomodoro, Potato and Cucumber focus timers" width="900">
+</p>
+
+| | Focus / break | Long break | Good for |
+|---|---|---|---|
+| 🍅 **Pomodoro** | 25 / 5 min | 15 min every 4 sessions | everyday work, the classic rhythm |
+| 🥔 **Potato** | 50 / 10 min | 20 min every 3 sessions | deep work: editing, coding, writing |
+| 🥒 **Cucumber** | 15 / 3 min | 10 min every 4 sessions | quick sprints, inbox, small fixes |
+
+Switch with one click on the chip above the timer ring. Each flavour counts down, chimes, and asks
+*take a break or keep working?* Only focus time is tracked. Every flavour keeps its own lengths:
+make your potato 45 minutes or your cucumber 10 in **Settings → Focus timer**.
 
 ---
 
@@ -136,4 +156,8 @@ See [CHANGELOG.md](CHANGELOG.md). The version lives in `sd_time/__init__.py`; re
 
 ## License
 
-Not licensed for redistribution yet — all rights reserved.
+[MIT](LICENSE): use it, change it, share it, just keep the copyright notice.
+
+SD Time is built with [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/), licensed under the
+[LGPL v3](https://www.gnu.org/licenses/lgpl-3.0.html), and [openpyxl](https://openpyxl.readthedocs.io/)
+(MIT). The installer ships the unmodified Qt libraries as separate files, so they can be replaced.
