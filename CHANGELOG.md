@@ -1,0 +1,32 @@
+# Changelog
+
+Versions follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
+New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init__.py`.
+
+## [Unreleased]
+
+## [0.1.0] - 2026-11-21
+
+First version.
+
+### Added
+- Timer in the system tray with a global start/stop hotkey (`Ctrl+Alt+T` by default).
+- Clients → projects → tasks; client and task are optional.
+- Hourly rates inherited task → project → client → default rate; amounts everywhere.
+- Time Tracker page: timer bar with autocomplete, entries grouped by week and day,
+  inline editing, continue, duplicate, delete, manual entries.
+- Calendar (week/day): drag to create, drag to move between days, drag edges to resize.
+- Timesheet: weekly grid, type `1:30` or `1.5` into a cell.
+- Reports: filters, stacked bar chart by day/month, grouping, donut chart,
+  Excel (Summary + Detailed) and CSV export.
+- Pomodoro mode: focus countdown, chime, "take a break / keep working" prompt,
+  long break every N sessions, settings.
+- Dark grey theme with an olive-green accent, own line icons, raccoon logo
+  (with a small-size variant for the tray and menu).
+- SQLite storage in `%APPDATA%\SD_Time`, automatic migration from the first schema.
+
+### Fixed (during the first QA pass)
+- Report donut crashed on an empty database.
+- Duplicating a 0-second entry crashed; misclick start/stop (<5 s) no longer saves entries.
+- Deleting a client could leave two client-less projects with the same name.
+- First-run chime synthesis froze the UI; tables filled in quadratic time.
