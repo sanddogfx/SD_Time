@@ -64,9 +64,11 @@ class GlobalHotkey(QObject):
     activated = Signal()
     HOTKEY_ID = 0x5D71
 
-    def __init__(self, hwnd: int, parent: QObject | None = None):
+    def __init__(self, hwnd: int, parent: QObject | None = None, hotkey_id: int | None = None):
         super().__init__(parent)
         self.hwnd = hwnd
+        if hotkey_id is not None:          # a second hotkey needs its own id
+            self.HOTKEY_ID = hotkey_id
         self.registered = False
         self.error = ""
         self._filter = None

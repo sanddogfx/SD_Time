@@ -14,13 +14,14 @@ from PySide6.QtWidgets import (
 from .db import Database
 from .dialogs import EntryDialog, PomodoroPrompt
 from .hotkey import GlobalHotkey
+from .mini import MiniTimer
 from .icons import color_icon, logo_pixmap, make_icon, nav_icon
 from .pages.week import WeekPage
 from .pages.manage import ClientsPage, ProjectsPage, SettingsPage
 from .pages.insights import InsightsPage
 from .pages.ledger import TimesheetPage
 from .pages.today import TrackerPage
-from .pomodoro import ASK, BREAK, FOCUS, IDLE, Pomodoro, PomodoroConfig
+from .pomodoro import ASK, BREAK, DEFAULT_KIND, FOCUS, IDLE, KINDS, Pomodoro, PomodoroConfig
 from .sound import play as play_sound
 from .sound import prepare_in_background as prepare_sounds
 from .theme import C
@@ -28,6 +29,7 @@ from .util import fmt_clock, fmt_time
 from .widgets import confirm, show_error
 
 DEFAULT_HOTKEY = "Ctrl+Alt+T"
+DEFAULT_MINI_HOTKEY = "Ctrl+Alt+M"
 
 NAV = [   # (icon name, tooltip, page) — the rail shows icons only
     ("tracker", "Tracker", TrackerPage),
@@ -63,11 +65,18 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 640)
 
         self._build_shell()
+        self.mini = MiniTimer(self)
         self._build_tray()
+        # The tracker's draft is shared with the mini timer.
+        self.tracker.desc.textEdited.connect(lambda _t: self._sync_mini())
+        self.tracker.picker.changed.connect(lambda *_: self._sync_mini())
 
         self.hotkey = GlobalHotkey(int(self.winId()), self)
         self.hotkey.activated.connect(self.on_hotkey)
         self.hotkey.register(self.hotkey_text())
+        self.mini_hotkey = GlobalHotkey(int(self.winId()), self, hotkey_id=0x5D72)
+        self.mini_hotkey.activated.connect(self.toggle_mini)
+        self.mini_hotkey.register(self.mini_hotkey_text())
 
         self.ticker = QTimer(self)
         self.ticker.setInterval(1000)
@@ -81,6 +90,8 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.tracker)
         self._pomo_restore()
         self.notify()
+        if settings.value("mini/visible", False, type=bool):
+            self.set_mini_visible(True)
         # Synthesize the chimes ahead of time so the first alert plays instantly.
         prepare_sounds(self._data_dir())
 
@@ -169,6 +180,10 @@ class MainWindow(QMainWindow):
         self.tray_menu.addAction(self.tray_toggle)
         self.recent_menu = self.tray_menu.addMenu("Continue")
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
+        self.mini_action = QAction("Mini timer", self)
+        self.mini_action.setCheckable(True)
+        self.mini_action.toggled.connect(self.set_mini_visible)
+        self.tray_menu.addAction(self.mini_action)
         self.tray_menu.addSeparator()
         for text, slot in (("Open SD Time", self.show_window),
                            ("Insights", lambda: (self.show_window(), self.go(self.pages[3])))):
@@ -211,6 +226,7 @@ class MainWindow(QMainWindow):
                 self._dirty.add(page)
         if current is not self.tracker:
             self.tracker.sync_top()
+        self._sync_mini()
         self.on_tick()
 
     def start(self, project_id=None, task_id=None, description: str = "") -> None:
@@ -237,16 +253,54 @@ class MainWindow(QMainWindow):
         self.notify()
 
     # ============================================================= pomodoro
+    def pomodoro_kind(self) -> str:
+        kind = self.settings.value("pomodoro/kind", DEFAULT_KIND, type=str)
+        return kind if kind in KINDS else DEFAULT_KIND
+
+    def timer_lengths(self, kind: str) -> dict[str, int]:
+        """Minutes for one timer kind: saved values, else its defaults. The tomato also
+        reads the keys used before there were several kinds (pomodoro/focus_min, ...)."""
+        s, k = self.settings, KINDS[kind]
+        out = {}
+        for key, default in (("focus_min", k.focus), ("short_break_min", k.short_break),
+                             ("long_break_min", k.long_break), ("long_every", k.long_every)):
+            legacy = s.value(f"pomodoro/{key}", default, type=int) if kind == "tomato" else default
+            out[key] = s.value(f"pomodoro/{kind}/{key}", legacy, type=int)
+        return out
+
+    def set_timer_lengths(self, kind: str, lengths: dict[str, int]) -> None:
+        for key, value in lengths.items():
+            self.settings.setValue(f"pomodoro/{kind}/{key}", int(value))
+
     def pomodoro_config(self) -> PomodoroConfig:
         s = self.settings
+        kind = self.pomodoro_kind()
+        m = self.timer_lengths(kind)
         return PomodoroConfig(
-            focus=s.value("pomodoro/focus_min", 25, type=int) * 60,
-            short_break=s.value("pomodoro/short_break_min", 5, type=int) * 60,
-            long_break=s.value("pomodoro/long_break_min", 15, type=int) * 60,
-            long_every=s.value("pomodoro/long_every", 4, type=int),
+            focus=m["focus_min"] * 60,
+            short_break=m["short_break_min"] * 60,
+            long_break=m["long_break_min"] * 60,
+            long_every=m["long_every"],
             auto_next=s.value("pomodoro/auto_next", False, type=bool),
             sound=s.value("pomodoro/sound", True, type=bool),
+            kind=kind,
         )
+
+    def set_pomodoro_kind(self, kind: str) -> None:
+        """Pick tomato / potato / cucumber; turns the focus timer on. A session that is
+        already counting down keeps its end; the new lengths apply from the next one."""
+        if kind not in KINDS:
+            return
+        changed = kind != self.pomodoro_kind()
+        self.settings.setValue("pomodoro/kind", kind)
+        if changed and self.pomo.phase == IDLE:
+            self.pomo.reset()          # a new kind starts its own cycle
+        self.reload_pomodoro_config()
+        if not self.pomodoro_enabled():
+            self.set_pomodoro_enabled(True)    # notifies
+        else:
+            self._pomo_save()
+            self.notify()
 
     def reload_pomodoro_config(self) -> None:
         """Settings changed: new lengths apply from the next focus/break."""
@@ -382,7 +436,7 @@ class MainWindow(QMainWindow):
              on_primary, on_secondary, on_dismiss=None) -> None:
         self._close_prompt()
         self._alert(sound_kind, title, text.split("\n")[-1])
-        prompt = PomodoroPrompt(self, title, text, primary, secondary)
+        prompt = PomodoroPrompt(self, title, text, primary, secondary, self.pomodoro_kind())
         prompt.kind = sound_kind
         actions = {PomodoroPrompt.PRIMARY: on_primary, PomodoroPrompt.SECONDARY: on_secondary,
                    PomodoroPrompt.DISMISSED: on_dismiss or on_secondary}
@@ -502,6 +556,22 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def mini_hotkey_text(self) -> str:
+        return self.settings.value("mini_hotkey", DEFAULT_MINI_HOTKEY, type=str)
+
+    def set_mini_hotkey(self, text: str) -> bool:
+        self.settings.setValue("mini_hotkey", text)
+        if not text:
+            self.mini_hotkey.unregister()
+            return True
+        if text == self.hotkey_text():
+            show_error(self, "The mini timer hotkey must differ from the start/stop hotkey.")
+            return False
+        if not self.mini_hotkey.register(text):
+            show_error(self, self.mini_hotkey.error or "Couldn't register the hotkey.")
+            return False
+        return True
+
     def toast(self, message: str) -> None:
         self.statusBar().showMessage(message, 3000)
 
@@ -510,6 +580,8 @@ class MainWindow(QMainWindow):
         self._pomo_check()
         if self.stack.currentWidget() is self.tracker:
             self.tracker.tick()
+        if self.mini.isVisible():
+            self.mini.tick()
         e = self.running
         phase = self.pomo.phase
         left = fmt_clock(self.pomo.remaining(int(time.time())))
@@ -549,6 +621,31 @@ class MainWindow(QMainWindow):
         if seconds < 3600:
             return f"{seconds // 60:02d}:{seconds % 60:02d}"
         return f"{seconds // 3600}:{seconds % 3600 // 60:02d}"
+
+    # ============================================================ mini timer
+    def set_mini_visible(self, on: bool) -> None:
+        if on == self.mini.isVisible():
+            self.mini_action.setChecked(on)
+            return
+        if on:
+            self.mini.sync()
+            self.mini.place(self.settings.value("mini/pos", None))
+            self.mini.show()
+            self.mini.raise_()
+        else:
+            self.mini.hide()
+        self.settings.setValue("mini/visible", on)
+        self.mini_action.blockSignals(True)
+        self.mini_action.setChecked(on)
+        self.mini_action.blockSignals(False)
+        self.tracker.sync_mini_button(on)
+
+    def toggle_mini(self) -> None:
+        self.set_mini_visible(not self.mini.isVisible())
+
+    def _sync_mini(self) -> None:
+        if self.mini.isVisible():
+            self.mini.sync()
 
     # ================================================================ window
     def show_window(self) -> None:
@@ -615,6 +712,8 @@ class MainWindow(QMainWindow):
                 return
         self._really_quit = True
         self.hotkey.unregister()
+        self.mini_hotkey.unregister()
+        self.mini.close()          # "mini/visible" is kept: it reopens on the next start
         self.tray.hide()
         self.settings.sync()
         QApplication.quit()

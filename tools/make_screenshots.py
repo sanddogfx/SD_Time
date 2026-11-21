@@ -127,7 +127,10 @@ w.pomo.end = now - 12 * 60 + w.pomo.config.focus
 w.notify()
 
 w.go(w.tracker)
+w.set_mini_visible(True)
 shot("tracker")
+shot("mini", w.mini)
+w.set_mini_visible(False)
 
 w.go(w.pages[1])
 shot("week")

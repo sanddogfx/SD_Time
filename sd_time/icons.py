@@ -127,6 +127,10 @@ _NAV_SVG = {
     "chevron-down": '<path d="M6 9l6 6 6-6"/>',
     "left": '<path d="M15 6l-6 6 6 6"/>',
     "download": '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
+    "mini": '<rect x="3.5" y="5" width="17" height="14" rx="2"/>'
+            '<rect x="12" y="12" width="6" height="4.5" rx="1"/>',
+    "expand": '<path d="M13.5 4.5h6v6M19.5 4.5l-7.5 7.5"/>'
+              '<path d="M18 14v3.5a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2H10"/>',
     "gap": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/><path d="M4 4l3 3"/>',
     "play": '<path d="M8.5 6.2v11.6c0 .6.6.9 1.1.6l9-5.8c.5-.3.5-1 0-1.3l-9-5.8c-.5-.3-1.1 0-1.1.7z"/>',
     "more": '<circle cx="12" cy="6" r=".9"/><circle cx="12" cy="12" r=".9"/>'
@@ -173,9 +177,53 @@ TOMATO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
 </svg>"""
 
 
+# Potato: a lumpy tan oval with a few eyes and a shine, same dark outline trick.
+_POTATO_BODY = ("M4.6 10.4C5.6 7 9.2 5.2 13.2 5.4c4.4.2 7.2 2.8 6.9 6.5-.3 4-3.6 6.9-8 7.1"
+                "-4.5.2-7.6-2-7.9-5.2-.1-1.2.1-2.3.4-3.4z")
+POTATO_SVG = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+ <g transform="translate(12 12.3) scale(1.17) translate(-12.4 -12.3)">
+  <path d="{_POTATO_BODY}" fill="#141414" stroke="#141414" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="{_POTATO_BODY}" fill="#c99a58" stroke="#8a632e" stroke-width="0.9"/>
+  <path d="M7.4 9.6c.8-1.3 2.1-2.1 3.6-2.4" fill="none" stroke="#ffffff" stroke-opacity="0.5"
+        stroke-width="1.3" stroke-linecap="round"/>
+  <g fill="#7d5a29">
+    <circle cx="9.2" cy="13.6" r="0.75"/><circle cx="14.6" cy="9.4" r="0.65"/>
+    <circle cx="13.4" cy="15.2" r="0.8"/><circle cx="17.2" cy="12.6" r="0.6"/>
+  </g>
+ </g>
+</svg>"""
+
+# Cucumber: a long green body lying diagonally, light stripes, bumps and a stem end.
+_CUKE = 'transform="rotate(-38 12 12)"'
+CUCUMBER_SVG = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <g {_CUKE}>
+    <rect x="2.2" y="7.3" width="19" height="9.4" rx="4.7" fill="#141414" stroke="#141414"
+          stroke-width="2.2"/>
+    <rect x="2.2" y="7.3" width="19" height="9.4" rx="4.7" fill="#4c9a37" stroke="#2c6a1f"
+          stroke-width="0.9"/>
+    <path d="M6.2 9.9h10.6M5.6 14.2h12" stroke="#7fc75f" stroke-width="1" stroke-linecap="round"/>
+    <g fill="#b5e397"><circle cx="7.6" cy="12" r="0.7"/><circle cx="11.6" cy="12" r="0.7"/>
+      <circle cx="15.6" cy="12" r="0.7"/></g>
+    <rect x="20.4" y="10.9" width="2.4" height="2.2" rx="0.8" fill="#6b8f2a" stroke="#141414"
+          stroke-width="0.5"/>
+  </g>
+</svg>"""
+
+_TIMER_SVG = {"tomato": TOMATO_SVG, "potato": POTATO_SVG, "cucumber": CUCUMBER_SVG}
+
+
+def timer_pixmap(kind: str, size: int, dpr: float = 1.0) -> QPixmap:
+    """Colour icon of a focus timer kind (tomato / potato / cucumber)."""
+    return _svg_pixmap(_TIMER_SVG.get(kind, TOMATO_SVG), size, dpr)
+
+
 def tomato_pixmap(size: int, dpr: float = 1.0) -> QPixmap:
+    return _svg_pixmap(TOMATO_SVG, size, dpr)
+
+
+def _svg_pixmap(svg: str, size: int, dpr: float = 1.0) -> QPixmap:
     px = max(size, int(round(size * dpr)))
-    renderer = QSvgRenderer(QByteArray(TOMATO_SVG.encode("utf-8")))
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
     pm = QPixmap(px, px)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
@@ -189,6 +237,7 @@ def tomato_pixmap(size: int, dpr: float = 1.0) -> QPixmap:
 _FILLED_SVG = {
     "play": '<path d="M8 5.6v12.8c0 .8.9 1.3 1.6.8l10-6.4c.6-.4.6-1.2 0-1.6l-10-6.4C8.9 4.3 8 4.8 8 5.6z"/>',
     "stop": '<rect x="6" y="6" width="12" height="12" rx="2.5"/>',
+    "dot": '<circle cx="12" cy="12" r="9"/>',
 }
 
 

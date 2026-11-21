@@ -12,6 +12,26 @@ from dataclasses import dataclass
 IDLE, FOCUS, ASK, BREAK = "idle", "focus", "ask", "break"
 
 
+@dataclass(frozen=True)
+class TimerKind:
+    """A focus timer flavour with its default lengths (minutes). Lengths are editable."""
+    key: str
+    name: str
+    focus: int
+    short_break: int
+    long_break: int
+    long_every: int
+    blurb: str
+
+
+KINDS: dict[str, TimerKind] = {k.key: k for k in (
+    TimerKind("tomato", "Pomodoro", 25, 5, 15, 4, "The classic: 25 min focus, 5 min break"),
+    TimerKind("potato", "Potato", 50, 10, 20, 3, "Deep work: 50 min focus, 10 min break"),
+    TimerKind("cucumber", "Cucumber", 15, 3, 10, 4, "Quick sprints: 15 min focus, 3 min break"),
+)}
+DEFAULT_KIND = "tomato"
+
+
 @dataclass
 class PomodoroConfig:
     focus: int = 25 * 60
@@ -20,6 +40,11 @@ class PomodoroConfig:
     long_every: int = 4
     auto_next: bool = False
     sound: bool = True
+    kind: str = DEFAULT_KIND
+
+    @property
+    def name(self) -> str:
+        return KINDS.get(self.kind, KINDS[DEFAULT_KIND]).name
 
 
 class Pomodoro:
@@ -102,7 +127,7 @@ class Pomodoro:
             return "Focus done: break or skip?"
         if self.phase == BREAK:
             return "Long break" if self.long else "Short break"
-        return f"Pomodoro {self.session_number()}/{every}"
+        return f"{self.config.name} {self.session_number()}/{every}"
 
     # ------------------------------------------------------------- persisting
     def to_dict(self) -> dict:

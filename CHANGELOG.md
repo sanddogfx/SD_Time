@@ -5,6 +5,52 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-21
+
+Tasks in plain sight, flatter look.
+
+### Added
+- **Focus timer flavours**: 🍅 Pomodoro (25 / 5, long 15 every 4), 🥔 Potato (50 / 10,
+  long 20 every 3) and 🥒 Cucumber (15 / 3, long 10 every 4). The chip above the ring is
+  now a menu: pick a flavour or *Off*. Each flavour keeps its own lengths (Settings →
+  Focus timer); the old Pomodoro lengths carry over. Its icon shows on the chip, in the
+  mini timer and in the break prompt.
+- **Mini timer**: a small always-on-top window with the description, project · task,
+  the time and START/STOP. It shares the draft with the Tracker page, follows the
+  running entry (edits go to it), shows the Pomodoro countdown, can be dragged anywhere
+  and remembers its place and whether it was open. Open it with `Ctrl+Alt+M`
+  (configurable in Settings), *Mini timer* in the tray menu, or the button next to
+  *Add time*. Right-click it for more.
+- Projects page shows each project's tasks underneath it, with the task's rate (own or
+  inherited), tracked time and amount. Projects fold and unfold; folding is remembered.
+- "+ Add task" row under every active project, and a small task window (name + rate).
+- Double-click a task to edit it; right-click for archive / restore and delete.
+- Search on the Projects page also finds tasks.
+- Project picker (timer, entry window): "+ Add task" under every project, and
+  "+ New client" next to "+ New project" (client first, then its first project).
+  Type a task name that does not exist yet and every project offers
+  "+ Add task “name”": one click creates it and picks it.
+
+### Fixed (picker)
+- Search results in the project picker open their projects, so matching tasks show
+  without an extra click.
+
+### Changed
+- Numbers (timers, totals, KPIs) use Segoe UI instead of a monospace font.
+- Smaller corner radii everywhere: cards, buttons, inputs, chips, calendar
+  blocks, charts. The start/stop buttons are now rounded squares.
+- One height (36 px) for every control: buttons, arrows, inputs, drop-downs,
+  segmented switches and header figures line up in every page header.
+- Buttons, arrows and switches share one fill and outline; hover lightens the fill.
+- Checkboxes are visible on the dark background and turn green when checked.
+- Insights: "By client" sits right under the bars instead of at the card bottom.
+
+### Fixed
+- The Day / Week / Month switch no longer clips its highlighted option
+  (the checked label was bolder, so wider, than the space reserved for it).
+- The Export button shows its drop-down arrow in the right place.
+- "Start again" no longer flashes a lighter background while it refreshes.
+
 ## [0.3.0] - 2026-11-21
 
 A new look of its own.

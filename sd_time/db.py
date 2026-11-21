@@ -549,6 +549,25 @@ class Database:
             item["amount"] += money(r["seconds"], rate)
         return out
 
+    def totals_by_task(self, now: int | None = None) -> dict[int, dict]:
+        """All-time tracked seconds and amount per task."""
+        now = _now(now)
+        default = self.default_rate
+        rows = self.conn.execute(
+            """SELECT e.task_id,
+                      COALESCE(t.rate, p.rate, c.rate) AS own_rate,
+                      SUM(MAX(0, COALESCE(e.end_ts, ?) - e.start_ts)) AS seconds
+               FROM entries e
+               JOIN tasks         t ON t.id = e.task_id
+               LEFT JOIN projects p ON p.id = t.project_id
+               LEFT JOIN clients  c ON c.id = p.client_id
+               GROUP BY e.task_id""", (now,)).fetchall()
+        out: dict[int, dict] = {}
+        for r in rows:
+            rate = r["own_rate"] if r["own_rate"] is not None else default
+            out[r["task_id"]] = {"seconds": r["seconds"], "amount": money(r["seconds"], rate)}
+        return out
+
     # ======================================================= focus sessions
     def log_focus(self, start_ts: int, end_ts: int, entry_id: int | None,
                   outcome: str = "break") -> None:

@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
-    QHBoxLayout, QScrollArea, QSizePolicy, QToolButton, QToolTip, QVBoxLayout, QWidget,
+    QHBoxLayout, QScrollArea, QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 
 from .. import theme
@@ -22,7 +22,8 @@ from ..db import NO_COLOR, day_start_ts
 from ..icons import hover_icon
 from ..theme import C
 from ..util import fmt_clock, fmt_hm, fmt_money, fmt_time, fmt_words, week_start
-from ..widgets import button, card, chip_label, label, segmented, show_error
+from ..widgets import (button, card, chip_label, clear_layout, header_pill, label, nav_button,
+                       segmented, show_error)
 
 SNAP = 15 * 60
 EDGE = 6          # px from a block's left/right edge that grabs the edge instead of the block
@@ -209,11 +210,11 @@ class WeekRows(QWidget):
             if d == today:
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QColor(C["today_col"]))
-                p.drawRoundedRect(row.adjusted(0, 1, 0, -1), 12, 12)
+                p.drawRoundedRect(row.adjusted(0, 1, 0, -1), 5, 5)
             bar = self.bar_rect(i)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor("#181818"))
-            p.drawRoundedRect(bar, 9 if not compact else 5, 9 if not compact else 5)
+            p.drawRoundedRect(bar, 4 if not compact else 2, 4 if not compact else 2)
             p.setPen(QPen(QColor(C["grid"]), 1))
             h = math.ceil(self.h0)
             while h <= self.h1:
@@ -254,11 +255,11 @@ class WeekRows(QWidget):
             color = e["project_color"] or NO_COLOR
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(color))
-            p.drawRoundedRect(rect, 6 if not compact else 3, 6 if not compact else 3)
+            p.drawRoundedRect(rect, 3 if not compact else 2, 3 if not compact else 2)
             if e["id"] == editing_id or e["end_ts"] is None:
                 p.setPen(QPen(QColor(C["accent_text"]), 2))
                 p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawRoundedRect(rect, 6, 6)
+                p.drawRoundedRect(rect, 3, 3)
             if rect.width() > 46 and rect.height() >= 22:
                 p.setPen(QColor(text_on(color)))
                 title = e["description"] or e["project_name"] or "No description"
@@ -289,7 +290,7 @@ class WeekRows(QWidget):
             fill.setAlpha(60)
             p.setPen(QPen(QColor(C["accent_text"]), 1))
             p.setBrush(fill)
-            p.drawRoundedRect(rect, 6, 6)
+            p.drawRoundedRect(rect, 3, 3)
             self._badge(p, fm, rect, f"{fmt_time(lo)} – {fmt_time(hi)}")
         if today in days:
             i = days.index(today)
@@ -308,7 +309,7 @@ class WeekRows(QWidget):
         badge = QRectF(rect.left(), y, w, fm.height() + 6)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(C["accent"]))
-        p.drawRoundedRect(badge, 4, 4)
+        p.drawRoundedRect(badge, 3, 3)
         p.setPen(QColor(C["on_accent"]))
         p.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
 
@@ -452,19 +453,10 @@ class WeekPage(QWidget):
         self.title_label = label("", "H1")
         self.seg = segmented([("day", "Day"), ("week", "Week"), ("month", "Month")], self.mode,
                              self._set_mode)
-        prev_btn = QToolButton()
-        next_btn = QToolButton()
-        for b, icon, tip, step in ((prev_btn, "left", "Previous", -1), (next_btn, "chevron", "Next", 1)):
-            b.setObjectName("RoundSmall")
-            b.setFixedSize(40, 40)
-            b.setStyleSheet("QToolButton#RoundSmall { border-radius: 12px; }")
-            b.setIcon(hover_icon(icon, dpr, 16, normal="#c9c9c9"))
-            b.setIconSize(QSize(16, 16))
-            b.setToolTip(tip)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(lambda _=False, s=step: self._shift(s))
+        prev_btn = nav_button("left", "Previous", lambda: self._shift(-1), dpr)
+        next_btn = nav_button("chevron", "Next", lambda: self._shift(1), dpr)
         today_btn = button("Today", self._today)
-        self.total_pill = label("", "Pill")
+        self.total_pill = header_pill()
         add = button("Add time", lambda: self.ctl.new_entry())
         add.setIcon(hover_icon("add", dpr, 16))
         add.setIconSize(QSize(16, 16))
@@ -553,10 +545,7 @@ class WeekPage(QWidget):
         total = sum(totals.values())
         amount = sum(self.db.amount(e) for e in self.view.data)
         self.total_pill.setText(fmt_words(total) + (f" · {amount:,.0f} {self.db.currency}" if amount else ""))
-        while self.legend.count():
-            item = self.legend.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.legend)
         per_project: dict = {}
         for e in self.view.data:
             key = e["project_id"]

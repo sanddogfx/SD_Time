@@ -19,7 +19,7 @@ from ..db import NO_COLOR, day_start_ts
 from ..icons import hover_icon, line_pixmap
 from ..theme import C
 from ..util import fmt_hm, fmt_time, fmt_words, parse_duration, week_start
-from ..widgets import ProjectPopup, button, chip_colors, confirm, label, show_error
+from ..widgets import nav_button, ProjectPopup, button, chip_colors, confirm, label, show_error
 
 ROLE = Qt.ItemDataRole.UserRole
 SECS = Qt.ItemDataRole.UserRole + 1
@@ -38,7 +38,7 @@ class LedgerDelegate(QStyledItemDelegate):
         ed.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ed.setFont(theme.mono(10))
         ed.setPlaceholderText("1:30")
-        ed.setStyleSheet(f"border-radius: 10px; border: 1px solid {C['accent_text']};")
+        ed.setStyleSheet(f"border-radius: 4px; border: 1px solid {C['accent_text']};")
         return ed
 
     def updateEditorGeometry(self, editor, option, index):
@@ -60,7 +60,7 @@ class LedgerDelegate(QStyledItemDelegate):
             chip = QRectF(r.left() + 4, top, w, 24)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(bg))
-            p.drawRoundedRect(chip, 12, 12)
+            p.drawRoundedRect(chip, 4, 4)
             p.setPen(QColor(fg))
             p.setFont(f)
             p.drawText(chip.adjusted(11, 0, -8, 0), Qt.AlignmentFlag.AlignVCenter,
@@ -82,20 +82,20 @@ class LedgerDelegate(QStyledItemDelegate):
                 fill = QColor(141, 184, 55, int(a * 255))
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(fill)
-                p.drawRoundedRect(pill, 10, 10)
+                p.drawRoundedRect(pill, 4, 4)
                 p.setPen(QColor("#f2f7e8"))
                 text = fmt_hm(secs)
             else:
                 pen = QPen(QColor("#333333"), 1, Qt.PenStyle.DashLine)
                 p.setPen(pen)
                 p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawRoundedRect(pill, 10, 10)
+                p.drawRoundedRect(pill, 4, 4)
                 p.setPen(QColor("#666666"))
                 text = "–"
             if option.state & option.state.__class__.State_Selected:
                 p.setPen(QPen(QColor(C["accent_text"]), 1.5))
                 p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawRoundedRect(pill, 10, 10)
+                p.drawRoundedRect(pill, 4, 4)
                 p.setPen(QColor("#f2f7e8") if secs else QColor("#888888"))
             p.setFont(theme.mono(9.5))
             p.drawText(pill, Qt.AlignmentFlag.AlignCenter, text)
@@ -144,18 +144,8 @@ class TimesheetPage(QWidget):
         dpr = self.devicePixelRatioF()
 
         self.title_label = label("", "H1")
-        nav = []
-        for icon, tip, step in (("left", "Previous week", -1), ("chevron", "Next week", 1)):
-            b = QToolButton()
-            b.setObjectName("RoundSmall")
-            b.setFixedSize(40, 40)
-            b.setStyleSheet("QToolButton#RoundSmall { border-radius: 12px; }")
-            b.setIcon(hover_icon(icon, dpr, 16, normal="#c9c9c9"))
-            b.setIconSize(QSize(16, 16))
-            b.setToolTip(tip)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(lambda _=False, s=step: self._shift(s))
-            nav.append(b)
+        nav = [nav_button("left", "Previous week", lambda: self._shift(-1), dpr),
+               nav_button("chevron", "Next week", lambda: self._shift(1), dpr)]
         this_week = button("This week", self._this_week)
         copy_btn = button("Copy last week", self._copy_last_week)
         self.add_btn = button("Add row", self._add_row)
@@ -177,7 +167,7 @@ class TimesheetPage(QWidget):
         icon.setPixmap(line_pixmap("gap", C["accent_soft_text"], 20, dpr))
         icon.setFixedSize(40, 40)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setStyleSheet("background: #2a3a18; border-radius: 12px;")
+        icon.setStyleSheet("background: #2a3a18; border-radius: 5px;")
         self.gap_title = label("", "H3")
         self.gap_text = label("", "Small")
         self.gap_text.setStyleSheet("color: #b5c79a;")

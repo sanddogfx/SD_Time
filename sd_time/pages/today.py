@@ -18,11 +18,11 @@ from PySide6.QtWidgets import (
 
 from .. import theme
 from ..db import NO_COLOR, day_start_ts
-from ..icons import color_icon, filled_pixmap, hover_icon, line_pixmap, tomato_pixmap
-from ..pomodoro import ASK, BREAK, FOCUS
+from ..icons import color_icon, filled_pixmap, hover_icon, line_pixmap, timer_pixmap
+from ..pomodoro import ASK, BREAK, FOCUS, KINDS
 from ..theme import C
 from ..util import day_title, fmt_clock, fmt_hm, fmt_money, fmt_time, fmt_words, week_start
-from ..widgets import ProjectPicker, button, card, label
+from ..widgets import ProjectPicker, button, card, clear_layout, label
 
 
 def repolish(widget: QWidget, name: str) -> None:
@@ -112,14 +112,14 @@ class DayRibbon(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#181818"))
-        p.drawRoundedRect(QRectF(0, 0, self.width(), 40), 10, 10)
+        p.drawRoundedRect(QRectF(0, 0, self.width(), 40), 4, 4)
         self._hits = []
         for start, end, color, running, tip in self.segments:
             x0, x1 = self._x(max(start, self.h0)), self._x(min(end, self.h1))
             rect = QRectF(x0, 7, max(3.0, x1 - x0 - 1.5), 26)
             p.setPen(QPen(QColor(C["accent_text"]), 2) if running else Qt.PenStyle.NoPen)
             p.setBrush(QColor(color))
-            p.drawRoundedRect(rect, 6, 6)
+            p.drawRoundedRect(rect, 3, 3)
             self._hits.append((rect, tip))
         if self.now_h is not None and self.h0 <= self.now_h <= self.h1:
             x = self._x(self.now_h)
@@ -303,23 +303,37 @@ class TrackerPage(QWidget):
         head_text.setSpacing(2)
         head_text.addWidget(self.title_label)
         head_text.addWidget(self.subtitle)
+        self.mini_btn = QToolButton()
+        self.mini_btn.setObjectName("Nav")
+        self.mini_btn.setCheckable(True)
+        self.mini_btn.setFixedSize(theme.CTRL_H, theme.CTRL_H)
+        self.mini_btn.setIcon(hover_icon("mini", dpr, 18, normal="#c9c9c9"))
+        self.mini_btn.setIconSize(QSize(18, 18))
+        self.mini_btn.setToolTip("Mini timer: a small window that stays on top")
+        self.mini_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mini_btn.clicked.connect(lambda: self.ctl.toggle_mini())
         header = QHBoxLayout()
+        header.setSpacing(10)
         header.addLayout(head_text, 1)
-        header.addWidget(add_btn, 0, Qt.AlignmentFlag.AlignBottom)
+        header.addWidget(self.mini_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(add_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # ---- Now card
         now = card()
         now.setFixedWidth(380)
         self.pomo_btn = QToolButton()
         self.pomo_btn.setObjectName("PomoChip")
-        self.pomo_btn.setCheckable(True)
-        self.pomo_btn.setIcon(QIcon(tomato_pixmap(18, dpr)))
+        self.pomo_btn.setCheckable(True)          # shows "on"; the menu changes it
         self.pomo_btn.setIconSize(QSize(18, 18))
         self.pomo_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.pomo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.pomo_btn.setToolTip("Pomodoro mode: START runs a focus session, then a break")
+        self.pomo_btn.setToolTip("Focus timer: START runs a focus session, then a break")
         self.pomo_btn.setChecked(self.ctl.pomodoro_enabled())
-        self.pomo_btn.toggled.connect(self.ctl.set_pomodoro_enabled)
+        self.pomo_menu = QMenu(self.pomo_btn)
+        self.pomo_menu.aboutToShow.connect(self._fill_pomo_menu)
+        self.pomo_btn.setMenu(self.pomo_menu)
+        self.pomo_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._pomo_kind_shown = None
         self.pomo_label = label("", "Small")
         top = QHBoxLayout()
         top.addWidget(self.pomo_btn)
@@ -458,6 +472,28 @@ class TrackerPage(QWidget):
         else:
             self.ctl.new_entry()
 
+    def _fill_pomo_menu(self) -> None:
+        menu, dpr = self.pomo_menu, self.devicePixelRatioF()
+        menu.clear()
+        on, current = self.ctl.pomodoro_enabled(), self.ctl.pomodoro_kind()
+        for kind in KINDS.values():
+            m = self.ctl.timer_lengths(kind.key)
+            act = menu.addAction(QIcon(timer_pixmap(kind.key, 18, dpr)),
+                                 f"{kind.name}   {m['focus_min']} / {m['short_break_min']} min")
+            act.setCheckable(True)
+            act.setChecked(on and kind.key == current)
+            act.setToolTip(kind.blurb)
+            act.triggered.connect(lambda _=False, k=kind.key: self.ctl.set_pomodoro_kind(k))
+        menu.addSeparator()
+        off = menu.addAction("Off: plain timer")
+        off.setCheckable(True)
+        off.setChecked(not on)
+        off.triggered.connect(lambda: self.ctl.set_pomodoro_enabled(False))
+        menu.setToolTipsVisible(True)
+
+    def sync_mini_button(self, on: bool) -> None:
+        self.mini_btn.setChecked(on)
+
     def draft(self) -> tuple:
         return self.picker.project_id, self.picker.task_id, self.desc.text().strip()
 
@@ -536,7 +572,13 @@ class TrackerPage(QWidget):
         now = int(time.time())
         cfg = pomo.config
         # Pomodoro chip and status
-        self.pomo_btn.setText(pomo.label().replace("/", " of ") if enabled else "Pomodoro")
+        if self._pomo_kind_shown != cfg.kind:
+            self._pomo_kind_shown = cfg.kind
+            self.pomo_btn.setIcon(QIcon(timer_pixmap(cfg.kind, 18, self.devicePixelRatioF())))
+            self.pomo_btn.setProperty("kind", cfg.kind)      # tint of the "on" chip
+            self.pomo_btn.style().unpolish(self.pomo_btn)
+            self.pomo_btn.style().polish(self.pomo_btn)
+        self.pomo_btn.setText(pomo.label().replace("/", " of ") if enabled else "Focus timer")
         if not enabled:
             hk = self.ctl.hotkey_text()
             self.pomo_label.setText(f"{hk} starts / stops" if hk else "")
@@ -616,10 +658,7 @@ class TrackerPage(QWidget):
         self.sync_top()
 
     def _rebuild_again(self) -> None:
-        while self.again_lay.count():
-            item = self.again_lay.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.again_lay)
         self.again_lay.addWidget(label("Start again", "H3"))
         recent = self.db.recent_activities(3)
         if not recent:

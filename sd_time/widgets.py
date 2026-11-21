@@ -4,7 +4,7 @@ from __future__ import annotations
 import html
 from contextlib import contextmanager
 
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QSizePolicy, QSpinBox, QToolButton,
@@ -14,10 +14,11 @@ from PySide6.QtWidgets import (
 
 from .db import NO_COLOR, Database
 from .icons import color_icon, inline_icon_html
-from .theme import C
+from .theme import C, CTRL_H
 from .util import fmt_rate, parse_rate
 
 ROLE = Qt.ItemDataRole.UserRole
+ADD_TASK = Qt.ItemDataRole.UserRole + 2      # project id on a picker "+ Add task" row
 
 
 def label(text: str = "", name: str | None = None) -> QLabel:
@@ -35,6 +36,39 @@ def button(text: str, slot=None, name: str | None = None) -> QPushButton:
         b.clicked.connect(slot)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     return b
+
+
+def nav_button(icon: str, tip: str, slot, dpr: float) -> QToolButton:
+    """Square icon button (prev / next) the same height as the text buttons beside it."""
+    from .icons import hover_icon
+    b = QToolButton()
+    b.setObjectName("Nav")
+    b.setFixedSize(CTRL_H, CTRL_H)
+    b.setIcon(hover_icon(icon, dpr, 16, normal="#c9c9c9"))
+    b.setIconSize(QSize(16, 16))
+    b.setToolTip(tip)
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.clicked.connect(slot)
+    return b
+
+
+def header_pill(text: str = "") -> QLabel:
+    """Read-only figure in a page header (e.g. week total), sized like a control."""
+    w = QLabel(text)
+    w.setObjectName("HeaderPill")
+    w.setFixedHeight(CTRL_H)
+    w.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    return w
+
+
+def clear_layout(lay) -> None:
+    """Empty a layout. Widgets are hidden at once: deleteLater alone leaves them painted
+    (at a stale geometry, over their neighbours) until the event loop gets to them."""
+    while lay.count():
+        w = lay.takeAt(0).widget()
+        if w is not None:
+            w.hide()
+            w.deleteLater()
 
 
 def card() -> QFrame:
@@ -68,7 +102,7 @@ def chip_colors(color: str | None) -> tuple[str, str]:
 def chip_label(text: str, color: str | None, size_pt: float = 9.5) -> QLabel:
     bg, fg = chip_colors(color)
     w = QLabel(text)
-    w.setStyleSheet(f"background: {bg}; color: {fg}; border-radius: 11px; padding: 4px 11px; "
+    w.setStyleSheet(f"background: {bg}; color: {fg}; border-radius: 4px; padding: 4px 10px; "
                     f"font-size: {size_pt}pt;")
     w.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)   # never squeezed into overlap
     return w
@@ -124,13 +158,21 @@ class ProjectPopup(QFrame):
         self.tree.setIndentation(16)
         self.tree.itemClicked.connect(self._on_click)
         self.tree.itemActivated.connect(self._on_click)
-        create_btn = button("+  Create new project", self._create_project, "Link")
+        create_btn = button("+  New project", lambda: self._create_project(), "Link")
+        create_btn.setToolTip("Create a project and pick it")
+        client_btn = button("+  New client", self._create_client, "Link")
+        client_btn.setToolTip("Create a client, then its first project")
+        actions = QHBoxLayout()
+        actions.setSpacing(4)
+        actions.addWidget(create_btn)
+        actions.addWidget(client_btn)
+        actions.addStretch(1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.addWidget(self.search)
         layout.addWidget(self.tree, 1)
-        layout.addWidget(create_btn, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addLayout(actions)
 
         self.search.textChanged.connect(self._fill)
         self.search.returnPressed.connect(self._choose_best)
@@ -154,6 +196,12 @@ class ProjectPopup(QFrame):
             self._on_click(first)
 
     def _fill(self) -> None:
+        self._fill_tree(create_mode=False)
+        if self.search.text().strip() and self.tree.topLevelItemCount() == 0:
+            # Nothing matches: the text is probably a new task. Offer it in every project.
+            self._fill_tree(create_mode=True)
+
+    def _fill_tree(self, create_mode: bool) -> None:
         query = self.search.text().strip().casefold()
         self.tree.clear()
         if self.allow_none and not query:
@@ -178,7 +226,7 @@ class ProjectPopup(QFrame):
                 p_match = (not query or query in p["name"].casefold()
                            or query in client_name.casefold())
                 t_matches = [t for t in tasks if p_match or query in t["name"].casefold()]
-                if not p_match and not t_matches:
+                if not p_match and not t_matches and not create_mode:
                     continue
                 item = QTreeWidgetItem([p["name"]])
                 item.setIcon(0, color_icon(p["color"], 10))
@@ -188,27 +236,72 @@ class ProjectPopup(QFrame):
                     child = QTreeWidgetItem([t["name"]])
                     child.setData(0, ROLE, (p["id"], t["id"]))
                     item.addChild(child)
+                # "Add task" row. When the search text is not the project's / client's name and
+                # not an existing task here, the row creates that task at once
+                # ("+ Add task “Edit”"); otherwise it opens the task window.
+                raw = self.search.text().strip()
+                quick = raw if raw and query not in p["name"].casefold() \
+                    and query not in client_name.casefold() else ""
+                if not any(t["name"].casefold() == query for t in tasks):
+                    add = QTreeWidgetItem([f"+  Add task “{quick}”" if quick else "+  Add task"])
+                    add.setData(0, ADD_TASK, (p["id"], quick))
+                    add.setForeground(0, QColor(C["accent_text"]))
+                    add.setToolTip(0, f"New task in {p['name']}")
+                    item.addChild(add)
                 header.addChild(item)
-                if query:
-                    item.setExpanded(True)
                 added = True
             if added:
                 self.tree.addTopLevelItem(header)
                 header.setExpanded(True)
+                if query:      # expanding only works once the item is in the tree
+                    for i in range(header.childCount()):
+                        header.child(i).setExpanded(True)
 
     def _on_click(self, item: QTreeWidgetItem, _col: int = 0) -> None:
+        add = item.data(0, ADD_TASK)
+        if add is not None:
+            self._add_task(*add)
+            return
         value = item.data(0, ROLE)
         if value is None:
             return
         self.chosen.emit(*value)
         self.close()
 
-    def _create_project(self) -> None:
+    def _add_task(self, project_id: int, name: str = "") -> None:
+        from .dialogs import TaskDialog
+        if name:
+            try:
+                task_id = self.db.add_task(project_id, name)
+            except ValueError as exc:
+                show_error(self, exc)
+                return
+        else:
+            self.hide()
+            dlg = TaskDialog(self.db, project_id, self.parentWidget())
+            task_id = dlg.task_id if dlg.exec() else None
+        if task_id:
+            self.chosen.emit(project_id, task_id)
+        self.close()
+
+    def _create_project(self, client_id: int | None = None) -> None:
         from .dialogs import ProjectDialog
         self.hide()
-        dlg = ProjectDialog(self.db, self.parentWidget(), name=self.search.text().strip())
+        dlg = ProjectDialog(self.db, self.parentWidget(), name=self.search.text().strip(),
+                            client_id=client_id)
         if dlg.exec() and dlg.project_id:
             self.chosen.emit(dlg.project_id, None)
+        self.close()
+
+    def _create_client(self) -> None:
+        """New client, then straight on to its first project (time is logged on projects)."""
+        from .dialogs import ClientDialog, ProjectDialog
+        self.hide()
+        dlg = ClientDialog(self.db, self.parentWidget(), name=self.search.text().strip())
+        if dlg.exec() and dlg.client_id:
+            pdlg = ProjectDialog(self.db, self.parentWidget(), client_id=dlg.client_id)
+            if pdlg.exec() and pdlg.project_id:
+                self.chosen.emit(pdlg.project_id, None)
         self.close()
 
 
@@ -365,6 +458,7 @@ def segmented(options: list[tuple[str, str]], current: str, on_change) -> QFrame
     """Pill-shaped segmented control: [Day | Week | Month]. on_change(key) on click."""
     frame = QFrame()
     frame.setObjectName("SegGroup")
+    frame.setFixedHeight(CTRL_H)
     lay = QHBoxLayout(frame)
     lay.setContentsMargins(4, 4, 4, 4)
     lay.setSpacing(2)
@@ -372,6 +466,7 @@ def segmented(options: list[tuple[str, str]], current: str, on_change) -> QFrame
     for key, text in options:
         b = QPushButton(text)
         b.setObjectName("Seg")
+        b.setFixedHeight(CTRL_H - 8)
         b.setCheckable(True)
         b.setAutoExclusive(True)
         b.setChecked(key == current)

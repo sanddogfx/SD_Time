@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-installer-8db837?style=for-the-badge"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-555?style=for-the-badge">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-555?style=for-the-badge">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-555?style=for-the-badge">
 </p>
 
@@ -28,12 +28,14 @@
 
 **Track**
 - **A ring timer** that doubles as Pomodoro progress, one big start/stop button, and a **global hotkey** (`Ctrl+Alt+T`) that works from any program.
+- **Mini timer** — a small window that stays on top of other programs: what you're doing, project and task, the time and START/STOP. Drag it anywhere; it remembers its place. Open it with `Ctrl+Alt+M`, the tray menu or the button next to *Add time*.
 - **Start again** with one click on your recent activities; **autocomplete** fills in project and task.
 - **Today** as a time ribbon plus compact lines; earlier days fold into one line each and open on click.
 - Accidental start/stop clicks (under 5 seconds) are not saved.
 
 **Organise and bill**
-- **Clients → projects → tasks**; client and task are optional. Projects show as tinted chips.
+- **Clients → projects → tasks**; client and task are optional. The Projects page lists every
+  project with its tasks underneath (own rate, tracked time, amount) and an *Add task* row.
 - **Hourly rates** inherited task → project → client → default, with amounts everywhere.
 - Archive instead of delete; deleting keeps your time entries.
 
@@ -43,11 +45,11 @@
 - **Insights** — tracked, billable, per-workday and focus-session numbers, a 12-week heatmap, ranked projects / clients / tasks, a by-client strip, **Excel and CSV export**.
 
 **Focus**
-- **Pomodoro mode** — focus countdown, a chime, then *take a break or keep working?* Only focus time is tracked; sessions are counted in Insights. Long break every 4 sessions; all lengths configurable.
+- **Focus timer in three flavours** — 🍅 *Pomodoro* (25 / 5), 🥔 *Potato* for deep work (50 / 10) and 🥒 *Cucumber* for quick sprints (15 / 3). Pick one from the chip above the ring. Each counts down, chimes, then asks *take a break or keep working?* Only focus time is tracked; sessions are counted in Insights. Every flavour keeps its own lengths, all configurable in Settings.
 
 **Feels at home on Windows**
 - Real installer, Start menu shortcut, optional **start with Windows**, lives quietly in the tray.
-- Dark theme with an olive-green accent, icon rail, rounded cards, monospaced digits.
+- Dark theme with an olive-green accent, icon rail, flat cards and one control height.
 
 ## Screenshots
 
@@ -58,6 +60,8 @@
 | <img src="docs/screenshots/timesheet.png" alt="Timesheet ledger"> | <img src="docs/screenshots/month.png" alt="Month view"> |
 | **Projects** | **Pomodoro** |
 | <img src="docs/screenshots/projects.png" alt="Projects"> | <img src="docs/screenshots/pomodoro.png" alt="Pomodoro prompt"> |
+| **Mini timer** | |
+| <img src="docs/screenshots/mini.png" alt="Mini timer"> | |
 
 ## Install
 
@@ -78,6 +82,7 @@ Nothing is sent anywhere. To back up, copy that folder.
 |---|---|
 | Start / stop from anywhere | `Ctrl+Alt+T` (change it in Settings) |
 | Show / hide the window | left-click the tray icon |
+| Mini timer on top | `Ctrl+Alt+M`, *Mini timer* in the tray menu, or the button next to *Add time* |
 | Quick actions | right-click the tray icon |
 | Continue a past activity | *Start again* card, ▷ on its row, or *Continue* in the tray menu |
 | Fix a forgotten timer | drag its block in Week, or click the time range |
@@ -113,6 +118,7 @@ Screenshots for this page: `.\.venv\Scripts\python.exe tools\make_screenshots.py
 sd_time/            app package
   db.py             SQLite storage, migrations, rates
   main_window.py    window, tray, hotkey, Pomodoro controller
+  mini.py           mini timer (small always-on-top window)
   pages/            today (tracker), week, ledger (timesheet), insights, manage
   pomodoro.py       Pomodoro state machine
   theme.py          colours and stylesheet

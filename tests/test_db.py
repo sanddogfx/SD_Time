@@ -20,6 +20,16 @@ class DatabaseTest(unittest.TestCase):
         self.t1 = self.db.add_task(self.p, "Layout")
         self.t2 = self.db.add_task(self.p, "Animation")
 
+    def test_totals_by_task(self):
+        self.db.update_task(self.t2, rate=80)
+        self.db.add_entry(0, 3600, self.p, self.t1)          # client rate 50
+        self.db.add_entry(4000, 5800, self.p, self.t2)       # own rate 80, half an hour
+        self.db.add_entry(6000, 9600, self.p, None)          # no task: not in the result
+        totals = self.db.totals_by_task(now=10_000)
+        self.assertEqual(set(totals), {self.t1, self.t2})
+        self.assertEqual(totals[self.t1], {"seconds": 3600, "amount": 50.0})
+        self.assertEqual(totals[self.t2], {"seconds": 1800, "amount": 40.0})
+
     def test_start_stop(self):
         eid = self.db.start(self.p, self.t1, "first pass", now=1000)
         running = self.db.running_entry()

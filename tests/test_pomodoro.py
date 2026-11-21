@@ -9,6 +9,18 @@ from sd_time.pomodoro import ASK, BREAK, FOCUS, IDLE, Pomodoro, PomodoroConfig  
 M = 60
 
 
+class TimerKindTest(unittest.TestCase):
+    def test_kinds_and_label(self):
+        from sd_time.pomodoro import KINDS
+        self.assertEqual(list(KINDS), ["tomato", "potato", "cucumber"])
+        self.assertEqual((KINDS["potato"].focus, KINDS["cucumber"].focus), (50, 15))
+        p = Pomodoro(PomodoroConfig(focus=50 * M, long_every=3, kind="potato"))
+        self.assertEqual(p.label(), "Potato 1/3")
+        p.begin_focus(1, 0)
+        self.assertEqual((p.end, p.label()), (50 * M, "Focus 1/3"))
+        self.assertEqual(PomodoroConfig(kind="nope").name, "Pomodoro")   # unknown -> default
+
+
 class PomodoroTest(unittest.TestCase):
     def setUp(self):
         self.p = Pomodoro(PomodoroConfig(focus=25 * M, short_break=5 * M, long_break=15 * M,

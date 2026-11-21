@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QMenu, QMessageBox, QScrollArea, QToolButton,
+    QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QMenu, QMessageBox, QScrollArea,
     QToolTip, QVBoxLayout, QWidget,
 )
 
@@ -21,7 +21,7 @@ from ..db import NO_COLOR, PALETTE, day_start_ts
 from ..icons import color_icon, hover_icon, tomato_pixmap
 from ..theme import C
 from ..util import fmt_clock, fmt_date, fmt_hm, fmt_money, fmt_time, fmt_words, week_start
-from ..widgets import button, card, label, segmented, show_error
+from ..widgets import button, card, label, nav_button, segmented, show_error
 
 ALL, NONE = "__all__", "__none__"
 HEAT = ["#262626", "#33421f", "#4b6a22", "#6a942a", "#9bcc45"]
@@ -97,7 +97,7 @@ class Heatmap(QWidget):
                     last_x = x
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(HEAT[self.level(h)] if d <= self.end else "#1c1c1c"))
-            p.drawRoundedRect(self._rect(i), 6, 6)
+            p.drawRoundedRect(self._rect(i), 3, 3)
 
     def mouseMoveEvent(self, event) -> None:
         for i, (d, h) in enumerate(self.cells):
@@ -145,9 +145,9 @@ class RankedBars(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor("#262626"))
             track = QRectF(bar_x, y + self.ROW / 2 - 7, bar_w, 14)
-            p.drawRoundedRect(track, 7, 7)
+            p.drawRoundedRect(track, 3, 3)
             p.setBrush(QColor(color))
-            p.drawRoundedRect(QRectF(bar_x, track.top(), max(14, bar_w * secs / top), 14), 7, 7)
+            p.drawRoundedRect(QRectF(bar_x, track.top(), max(6, bar_w * secs / top), 14), 3, 3)
             p.setFont(theme.mono(9.5))
             p.setPen(QColor(C["text"]))
             p.drawText(QRectF(bar_x + bar_w + 12, y, hours_w, self.ROW),
@@ -184,7 +184,7 @@ class StackedStrip(QWidget):
             r = QRectF(x, 0, max(3.0, w), self.height())
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(color))
-            p.drawRoundedRect(r, 6, 6)
+            p.drawRoundedRect(r, 2, 2)
             self._hits.append((r, f"{name}: {fmt_words(secs)} ({secs / total:.0%})"))
             x += w + gap
 
@@ -209,23 +209,13 @@ class InsightsPage(QWidget):
         self.title_label = label("", "H1")
         self.period_seg = segmented([("week", "Week"), ("month", "Month"), ("quarter", "Quarter"),
                                      ("year", "Year")], self.kind, self._set_kind)
-        nav = []
-        for icon, tip, step in (("left", "Previous", -1), ("chevron", "Next", 1)):
-            b = QToolButton()
-            b.setObjectName("RoundSmall")
-            b.setFixedSize(40, 40)
-            b.setStyleSheet("QToolButton#RoundSmall { border-radius: 12px; }")
-            b.setIcon(hover_icon(icon, dpr, 16, normal="#c9c9c9"))
-            b.setIconSize(QSize(16, 16))
-            b.setToolTip(tip)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(lambda _=False, s=step: self._shift(s))
-            nav.append(b)
+        nav = [nav_button("left", "Previous", lambda: self._shift(-1), dpr),
+               nav_button("chevron", "Next", lambda: self._shift(1), dpr)]
         self.client_combo = QComboBox()
         self.project_combo = QComboBox()
         for c in (self.client_combo, self.project_combo):
             c.setMinimumWidth(150)
-        export = button("Export")
+        export = button("Export", name="MenuButton")
         export.setIcon(hover_icon("download", dpr, 16))
         export.setIconSize(QSize(16, 16))
         menu = QMenu(export)
@@ -281,7 +271,7 @@ class InsightsPage(QWidget):
         for c in HEAT:
             sw = QWidget()
             sw.setFixedSize(13, 13)
-            sw.setStyleSheet(f"background: {c}; border-radius: 4px;")
+            sw.setStyleSheet(f"background: {c}; border-radius: 2px;")
             legend.addWidget(sw)
         legend.addWidget(label("More", "Small"))
         legend.addStretch(1)
@@ -302,13 +292,14 @@ class InsightsPage(QWidget):
         wl.addLayout(wh)
         self.bars = RankedBars()
         wl.addWidget(self.bars)
-        wl.addStretch(1)
+        wl.addSpacing(14)
         wl.addWidget(label("By client", "H3"))
         self.strip = StackedStrip()
         wl.addWidget(self.strip)
         self.strip_legend = label("", "Small")
         self.strip_legend.setWordWrap(True)
         wl.addWidget(self.strip_legend)
+        wl.addStretch(1)
 
         bottom = QHBoxLayout()
         bottom.setSpacing(14)

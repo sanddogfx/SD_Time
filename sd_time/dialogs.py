@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from .db import PALETTE, Database
-from .icons import tomato_pixmap
+from .icons import timer_pixmap
 from .widgets import ProjectPicker, RateEdit, button, confirm, label, show_error
 from .util import fmt_hms, fmt_money, fmt_rate, parse_rate
 
@@ -174,6 +174,46 @@ class ClientDialog(QDialog):
                 self.db.update_client(self.client_id, name=self.name_edit.text(), rate=rate)
             else:
                 self.client_id = self.db.add_client(self.name_edit.text(), rate)
+        except ValueError as exc:
+            show_error(self, exc)
+            return
+        super().accept()
+
+
+# ====================================================================== task
+class TaskDialog(QDialog):
+    """New task in a project, or edit one: name and an optional own rate."""
+
+    def __init__(self, db: Database, project_id: int, parent: QWidget | None = None, task=None):
+        super().__init__(parent)
+        self.db = db
+        self.project_id = project_id
+        self.task_id = task["id"] if task else None
+        project = db.get_project(project_id)
+        self.setWindowTitle(f"Edit task · {project['name']}" if task else f"New task · {project['name']}")
+        self.setMinimumWidth(400)
+
+        inherited = project["rate"] if project["rate"] is not None else project["client_rate"]
+        source = "project" if project["rate"] is not None else "client"
+        if inherited is None:
+            inherited, source = db.default_rate, "default"
+        self.name_edit = QLineEdit(task["name"] if task else "")
+        self.name_edit.setPlaceholderText("e.g. Storyboard, Edit, Client review")
+        self.rate_edit = RateEdit(task["rate"] if task else None,
+                                  f"Same as {source} ({fmt_rate(inherited, db.currency)})"
+                                  if inherited else "No rate")
+        form = QFormLayout(self)
+        form.addRow("Task", self.name_edit)
+        form.addRow(f"Hourly rate, {db.currency}", self.rate_edit)
+        form.addRow(_buttons(self, "Save" if task else "Add task"))
+
+    def accept(self) -> None:
+        try:
+            rate = self.rate_edit.value()
+            if self.task_id:
+                self.db.update_task(self.task_id, name=self.name_edit.text(), rate=rate)
+            else:
+                self.task_id = self.db.add_task(self.project_id, self.name_edit.text(), rate)
         except ValueError as exc:
             show_error(self, exc)
             return
@@ -411,14 +451,14 @@ class PomodoroPrompt(QDialog):
     DISMISSED, PRIMARY, SECONDARY = 0, 1, 2
 
     def __init__(self, parent: QWidget | None, title: str, text: str, primary: str,
-                 secondary: str):
+                 secondary: str, kind: str = "tomato"):
         super().__init__(parent, Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowTitle("SD Time · Pomodoro")
         self.setMinimumWidth(420)
         self.setModal(False)
 
         icon = label()
-        icon.setPixmap(tomato_pixmap(48, self.devicePixelRatioF()))
+        icon.setPixmap(timer_pixmap(kind, 48, self.devicePixelRatioF()))
         heading = label(title, "H1")
         body = label(text, "Muted")
         body.setWordWrap(True)
