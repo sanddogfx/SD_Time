@@ -93,6 +93,7 @@ class ReportsPage(QWidget):
         for col in (1, 2, 3):
             h.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.donut = DonutChart()
+        self.donut.setMaximumWidth(420)   # leave the width to the table, so titles aren't cut
 
         group_bar = QHBoxLayout()
         group_bar.addWidget(label("Group by:", "Small"))

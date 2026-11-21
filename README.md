@@ -1,87 +1,132 @@
-# SD Time
+<p align="center">
+  <img src="assets/logo.svg" width="96" alt="SD Time logo">
+</p>
 
-Desktop time tracker for Windows: timer in the system tray, clients → projects → tasks,
-hourly rates, calendar, timesheet and reports with Excel export.
+<h1 align="center">SD Time</h1>
+
+<p align="center">
+  <b>A calm desktop time tracker for Windows.</b><br>
+  Tray timer, clients → projects → tasks, hourly rates, calendar, timesheet, reports and a Pomodoro mode.<br>
+  Everything stays on your computer.
+</p>
+
+<p align="center">
+  <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-installer-8db837?style=for-the-badge"></a>
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-555?style=for-the-badge">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-555?style=for-the-badge">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/tracker.png" alt="Time Tracker page" width="900">
+</p>
+
+> Screenshots use made-up demo data.
+
+---
+
+## Features
+
+**Track**
+- **One-click timer** in the app and in the system tray, plus a **global hotkey** (`Ctrl+Alt+T`) that works from any program.
+- **Autocomplete** from earlier entries — picking one also fills in its project and task.
+- Entries grouped by **week and day** with totals and earnings; edit inline, continue, duplicate, delete, or add time manually.
+- Accidental start/stop clicks (under 5 seconds) are not saved.
+
+**Organise and bill**
+- **Clients → projects → tasks**; client and task are optional.
+- **Hourly rates** inherited task → project → client → default, with amounts everywhere.
+- Archive instead of delete; deleting keeps your time entries.
+
+**See where the time went**
+- **Calendar** week / day view — drag to create entries, drag to move them, drag an edge to resize.
+- **Timesheet** — a week grid; type `1:30` or `1.5` into a cell.
+- **Reports** — stacked bars by day, grouped totals, donut chart, **Excel and CSV export**.
+
+**Focus**
+- **Pomodoro mode** — focus countdown, a chime, then *take a break or keep working?* Only focus time is tracked. Long break every 4 sessions; all lengths configurable.
+
+**Feels at home on Windows**
+- Real installer, Start menu shortcut, optional **start with Windows**, lives quietly in the tray.
+- Dark grey theme with an olive-green accent.
+
+## Screenshots
+
+| Calendar | Reports |
+|---|---|
+| <img src="docs/screenshots/calendar.png" alt="Calendar week view"> | <img src="docs/screenshots/reports.png" alt="Reports"> |
+| **Timesheet** | **Projects** |
+| <img src="docs/screenshots/timesheet.png" alt="Timesheet"> | <img src="docs/screenshots/projects.png" alt="Projects"> |
+| **Pomodoro** | **Settings** |
+| <img src="docs/screenshots/pomodoro.png" alt="Pomodoro prompt"> | <img src="docs/screenshots/settings.png" alt="Settings"> |
 
 ## Install
 
-Run `SD_Time_Setup_<version>.exe` (from `dist\` after a build). No admin rights needed:
-it installs for the current user, adds a Start menu shortcut, and optionally a desktop
-shortcut and "Start with Windows". Running a newer installer updates in place.
-Uninstall from Settings → Apps; your time data stays unless you choose to delete it.
+1. Download **`SD_Time_Setup_<version>.exe`** from [Releases](../../releases/latest).
+2. Run it. No admin rights needed — it installs for the current user.
+3. Optionally tick *desktop shortcut* and *start with Windows*.
 
-## Build the installer
+Running a newer installer updates in place. Uninstall from **Settings → Apps**; you'll be asked whether to keep your data (the default is to keep it).
 
-```powershell
-.\build.ps1
-```
+## Your data
 
-Builds `dist\SD Time\SD Time.exe` (PyInstaller, no Python needed to run it), self-tests it,
-then `dist\SD_Time_Setup_<version>.exe` (Inno Setup 6: `winget install JRSoftware.InnoSetup`).
-`.\build.ps1 -NoInstaller` builds only the app folder.
+Everything is stored locally in `%APPDATA%\SD_Time` — a single SQLite database plus a settings file.
+Nothing is sent anywhere. To back up, copy that folder.
 
-## Run from source
+## Tips
 
-Double-click `SD_Time.bat`. Start hidden in the tray: `SD_Time.bat --hidden`.
+| | |
+|---|---|
+| Start / stop from anywhere | `Ctrl+Alt+T` (change it in Settings) |
+| Show / hide the window | left-click the tray icon |
+| Quick actions | right-click the tray icon |
+| Continue a past activity | ▷ on its row, or *Continue* in the tray menu |
+| Fix a forgotten timer | drag its block in the Calendar, or click the time range |
 
-First setup on a new machine:
+## Build from source
+
+Requires Windows and Python 3.12+.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\SD_Time.bat                      # run from source
 ```
 
-## Pages
+Installer build (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`):
 
-- **Time Tracker**: type what you're working on, pick a project (and task), press START.
-  Entries below are grouped by week and day; edit the description or project in place,
-  click the time range to edit times, ▷ continues an activity, ⋮ duplicates or deletes.
-  ＋ adds time manually.
-- **Calendar**: week or day grid. Drag on empty space to add time, click an entry to edit,
-  double-click for a one-hour entry. − / + zoom.
-- **Timesheet**: one row per project/task, one column per day. Double-click a cell and type
-  `1:30` or `1.5`: more time adds an entry, less time trims the latest entries.
-- **Reports**: period, client and project filters; stacked bar chart by day (by month for long
-  periods); grouping Project › Task, Project › Description, Client › Project, Description; donut
-  chart; amounts. Export to Excel (Summary + Detailed sheets) or CSV.
-- **Projects / Clients**: create, edit, archive, delete. A project's dialog also manages its tasks.
-- **Settings**: currency, default hourly rate, global hotkey, close-to-tray.
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-tools.txt
+.\build.ps1                        # -> dist\SD_Time_Setup_<version>.exe
+```
 
-## Pomodoro
+`build.ps1` builds a standalone app with PyInstaller, runs it in self-test mode, then packs the installer.
 
-The 🍅 button next to START turns Pomodoro mode on. START then runs a focus session (25 min by
-default) with a countdown. When it ends a chime plays and a window asks: **Take a break** (the entry
-stops exactly at the focus end, the break counts down untracked) or **Skip, keep working** (the
-entry keeps running and a new focus session starts). Closing that window counts as a break. When a
-break ends you're asked to start the next focus. Every 4th break is long. Lengths, auto-start and
-sound are in Settings.
+Tests: `.\.venv\Scripts\python.exe -m unittest discover -s tests`
 
-A timer stopped within 5 seconds of starting is treated as a misclick and not saved.
+Screenshots for this page: `.\.venv\Scripts\python.exe tools\make_screenshots.py`
 
-## Rates
+<details>
+<summary>Project layout</summary>
 
-A rate is inherited: **task → project → client → default rate**. Leave a rate empty to inherit.
-Amounts are calculated from the current rates when shown or exported.
-
-## Hotkey and tray
-
-`Ctrl+Alt+T` works from any app: it stops the running timer, or starts what's typed in the timer
-bar, or continues the last entry. Left-click the tray icon to show/hide the window; right-click for
-start/stop, recent activities and quit. Closing the window keeps SD Time running in the tray.
-
-## Data
-
-Everything is in `%APPDATA%\SD_Time\`: `sd_time.db` (SQLite) and `settings.ini`.
-Copy that folder to back up. Deleting a client keeps its projects; deleting a project or task
-keeps its time entries (without the project/task).
+```
+sd_time/            app package
+  db.py             SQLite storage, migrations, rates
+  main_window.py    window, tray, hotkey, Pomodoro controller
+  pages/            tracker, calendar, timesheet, reports, projects/clients/settings
+  pomodoro.py       Pomodoro state machine
+  theme.py          colours and stylesheet
+  icons.py          logo and line icons
+assets/             logo (SVG/ICO) and UI images
+packaging/          PyInstaller spec, Inno Setup script
+tools/              logo, icon and screenshot generators
+tests/              unit tests
+```
+</details>
 
 ## Versions
 
-The version is in `sd_time/__init__.py` (shown in Settings); changes are listed in
-[CHANGELOG.md](CHANGELOG.md). Releases are git tags `vMAJOR.MINOR.PATCH`.
+See [CHANGELOG.md](CHANGELOG.md). The version lives in `sd_time/__init__.py`; releases are tagged `vMAJOR.MINOR.PATCH`.
 
-## Tests
+## License
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests
-```
+Not licensed for redistribution yet — all rights reserved.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout,
@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..db import NO_COLOR, day_start_ts
-from ..icons import color_icon
+from ..icons import color_icon, hover_icon
 from ..theme import C
 from ..util import fmt_clock, parse_duration, week_start
 from ..widgets import ProjectPopup, button, confirm, label, show_error
@@ -55,7 +55,9 @@ class TimesheetPage(QWidget):
         self.table.itemChanged.connect(self._cell_changed)
         self.table.cellClicked.connect(self._cell_clicked)
 
-        self.add_btn = button("⊕  Add new row", self._add_row)
+        self.add_btn = button("Add new row", self._add_row)
+        self.add_btn.setIcon(hover_icon("plus", self.devicePixelRatioF(), 16))
+        self.add_btn.setIconSize(QSize(16, 16))
         copy_btn = button("Copy last week's rows", self._copy_last_week)
         bottom = QHBoxLayout()
         bottom.addWidget(self.add_btn)
