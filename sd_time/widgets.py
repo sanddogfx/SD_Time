@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QSpinBox, QToolButton,
+    QAbstractSpinBox, QSizePolicy, QSpinBox, QToolButton,
     QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -49,6 +49,29 @@ def show_error(parent: QWidget, exc: Exception | str) -> None:
 
 def confirm(parent: QWidget, title: str, text: str) -> bool:
     return QMessageBox.question(parent, title, text) == QMessageBox.StandardButton.Yes
+
+
+def mix(a: str, b: str, t: float) -> str:
+    """Blend colour a toward b by t (0 = a, 1 = b)."""
+    ca, cb = QColor(a), QColor(b)
+    return QColor(round(ca.red() + (cb.red() - ca.red()) * t),
+                  round(ca.green() + (cb.green() - ca.green()) * t),
+                  round(ca.blue() + (cb.blue() - ca.blue()) * t)).name()
+
+
+def chip_colors(color: str | None) -> tuple[str, str]:
+    """Tinted pill for a project: (background, text) — the project's hue, readable on cards."""
+    color = color or NO_COLOR
+    return mix(color, C["card"], 0.80), mix(color, "#ffffff", 0.45)
+
+
+def chip_label(text: str, color: str | None, size_pt: float = 9.5) -> QLabel:
+    bg, fg = chip_colors(color)
+    w = QLabel(text)
+    w.setStyleSheet(f"background: {bg}; color: {fg}; border-radius: 11px; padding: 4px 11px; "
+                    f"font-size: {size_pt}pt;")
+    w.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)   # never squeezed into overlap
+    return w
 
 
 def project_html(project: str | None, color: str | None, task: str | None = None,
@@ -234,12 +257,19 @@ class ProjectPicker(QLabel):
             icon = inline_icon_html("plus", C["accent_text"], 15, self.devicePixelRatioF())
             self.setText(f'{icon}&nbsp;<span style="color:{C["accent_text"]}">'
                          f'{html.escape(self.placeholder)}</span>')
+            self.setStyleSheet("QLabel#Picker { background: transparent; }"
+                               f"QLabel#Picker:hover {{ background: {C['raised']}; }}")
             self.setToolTip("Choose project")
             return
-        self.setText(project_html(project, color, task, client))
+        # A tinted pill in the project's colour: "Project · Task"; client and rate in the tooltip.
+        bg, fg = chip_colors(color)
+        text = html.escape(project) + (f" · {html.escape(task)}" if task else "")
+        self.setText(f'<span style="color:{fg}">{text}</span>')
+        self.setStyleSheet(f"QLabel#Picker {{ background: {bg}; }}"
+                           f"QLabel#Picker:hover {{ background: {mix(color or NO_COLOR, C['card'], 0.65)}; }}")
         if rate is None:
             rate = self.db.default_rate
-        self.setToolTip(f"Rate: {fmt_rate(rate, self.db.currency)}")
+        self.setToolTip(" · ".join(x for x in (client, f"Rate: {fmt_rate(rate, self.db.currency)}") if x))
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -329,6 +359,27 @@ def bulk_fill(table):
             header.setSectionResizeMode(i, mode)
         table.blockSignals(False)
         table.setUpdatesEnabled(True)
+
+
+def segmented(options: list[tuple[str, str]], current: str, on_change) -> QFrame:
+    """Pill-shaped segmented control: [Day | Week | Month]. on_change(key) on click."""
+    frame = QFrame()
+    frame.setObjectName("SegGroup")
+    lay = QHBoxLayout(frame)
+    lay.setContentsMargins(4, 4, 4, 4)
+    lay.setSpacing(2)
+    frame.buttons = {}
+    for key, text in options:
+        b = QPushButton(text)
+        b.setObjectName("Seg")
+        b.setCheckable(True)
+        b.setAutoExclusive(True)
+        b.setChecked(key == current)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.clicked.connect(lambda _=False, k=key: on_change(k))
+        lay.addWidget(b)
+        frame.buttons[key] = b
+    return frame
 
 
 def hline() -> QFrame:

@@ -163,6 +163,30 @@ class DatabaseTest(unittest.TestCase):
         self.db.set_day_total(d, None, None, 600)         # row without project
         self.assertIsNone(self.db.entries(*day_bounds(d))[0]["project_id"])
 
+    def test_find_gaps(self):
+        d = date(2026, 11, 19)
+        at = lambda h, m=0: day_start_ts(d, h, m)   # noqa: E731
+        self.db.add_entry(at(9), at(10), self.p, self.t1, "a")
+        self.db.add_entry(at(10, 10), at(11), self.p, self.t1, "b")       # 10 min gap: ignored
+        self.db.add_entry(at(12, 30), at(13), self.p, self.t2, "c")       # 1h30 gap before
+        self.db.add_entry(at(12, 40), at(14), self.p, self.t2, "d")       # overlaps c
+        self.db.add_entry(at(15), at(16), self.p, self.t1, "e")           # 1h gap after d
+        gaps = self.db.find_gaps(d, d)
+        self.assertEqual([(g["start"], g["end"]) for g in gaps],
+                         [(at(11), at(12, 30)), (at(14), at(15))])
+        self.assertEqual(gaps[0]["before"]["description"], "b")
+        self.assertEqual(gaps[1]["before"]["description"], "d")   # the one reaching furthest
+        self.assertEqual(self.db.find_gaps(d, d, min_gap=2 * 3600), [])
+        self.db.start(self.p, self.t1, now=at(17))   # running entries are not gap bounds
+        self.assertEqual(len(self.db.find_gaps(d, d)), 2)
+
+    def test_focus_sessions(self):
+        self.db.log_focus(1000, 2500, None, "break")
+        self.db.log_focus(3000, 4500, None, "skip")
+        rows = self.db.focus_sessions(0, 4000)
+        self.assertEqual([r["outcome"] for r in rows], ["break"])
+        self.assertEqual(len(self.db.focus_sessions(0, 10_000)), 2)
+
     def test_settings(self):
         self.assertEqual(self.db.currency, "USD")
         self.db.set_setting("currency", "EUR")

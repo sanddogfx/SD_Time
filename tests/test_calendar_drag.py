@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sd_time.pages.calendar_page import SNAP, drag_times  # noqa: E402
+from sd_time.pages.week import SNAP, drag_times  # noqa: E402
 
 H = 3600
 DAY0 = 86400 * 20000   # any midnight-aligned value

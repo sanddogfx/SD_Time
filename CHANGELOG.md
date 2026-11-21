@@ -5,6 +5,27 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-21
+
+A new look of its own.
+
+### Changed
+- Icon rail instead of the wide text menu; sentence-case labels, rounded cards,
+  monospaced digits, projects as tinted chips.
+- Tracker: a ring timer (shows Pomodoro progress), round start/stop, "Start again"
+  with recent activities, "Today" as a time ribbon with compact lines; earlier days fold
+  into one line each.
+- Calendar → Week: days are rows and hours run left to right, with Day / Week / Month.
+  Drag to create, move (also to another day) and resize; Esc cancels.
+- Reports → Insights: KPI cards (tracked with change, billable, per workday, focus
+  sessions), a 12-week heatmap, ranked projects / clients / tasks, a by-client strip.
+  Excel / CSV export kept.
+- Timesheet: a ledger of day pills filled by hours, day totals with load bars.
+
+### Added
+- Gap finder on the Timesheet: untracked time between entries, filled in one click.
+- Pomodoro focus sessions are recorded (database schema v4) and counted in Insights.
+
 ## [0.2.1] - 2026-11-21
 
 ### Fixed

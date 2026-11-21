@@ -15,11 +15,11 @@ from .db import Database
 from .dialogs import EntryDialog, PomodoroPrompt
 from .hotkey import GlobalHotkey
 from .icons import color_icon, logo_pixmap, make_icon, nav_icon
-from .pages.calendar_page import CalendarPage
+from .pages.week import WeekPage
 from .pages.manage import ClientsPage, ProjectsPage, SettingsPage
-from .pages.reports import ReportsPage
-from .pages.timesheet import TimesheetPage
-from .pages.tracker import TrackerPage
+from .pages.insights import InsightsPage
+from .pages.ledger import TimesheetPage
+from .pages.today import TrackerPage
 from .pomodoro import ASK, BREAK, FOCUS, IDLE, Pomodoro, PomodoroConfig
 from .sound import play as play_sound
 from .sound import prepare_in_background as prepare_sounds
@@ -29,15 +29,16 @@ from .widgets import confirm, show_error
 
 DEFAULT_HOTKEY = "Ctrl+Alt+T"
 
-NAV = [   # (icon name, label, page) — a row without a page is a section header
-    ("tracker", "TIME TRACKER", TrackerPage),
-    ("calendar", "CALENDAR", CalendarPage),
-    ("timesheet", "TIMESHEET", TimesheetPage),
-    ("reports", "REPORTS", ReportsPage),
-    ("projects", "PROJECTS", ProjectsPage),
-    ("clients", "CLIENTS", ClientsPage),
-    ("settings", "SETTINGS", SettingsPage),
+NAV = [   # (icon name, tooltip, page) — the rail shows icons only
+    ("tracker", "Tracker", TrackerPage),
+    ("calendar", "Week", WeekPage),
+    ("timesheet", "Timesheet", TimesheetPage),
+    ("reports", "Insights", InsightsPage),
+    ("projects", "Projects", ProjectsPage),
+    ("clients", "Clients", ClientsPage),
+    ("settings", "Settings", SettingsPage),
 ]
+RAIL_W = 72
 
 
 class MainWindow(QMainWindow):
@@ -85,45 +86,32 @@ class MainWindow(QMainWindow):
 
     # ================================================================ shell
     def _build_shell(self) -> None:
+        # Icon rail: logo, one icon per page (name in the tooltip), the running time below.
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(210)
-        brand = QWidget()
-        brand_lay = QHBoxLayout(brand)
-        brand_lay.setContentsMargins(20, 16, 12, 12)
-        brand_lay.setSpacing(10)
+        sidebar.setFixedWidth(RAIL_W)
         dpr = self.devicePixelRatioF()
-        logo = logo_pixmap(int(30 * dpr), small=True)   # 30 px on screen: small artwork
+        logo_label = QLabel()
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_label.setContentsMargins(0, 18, 0, 16)
+        logo = logo_pixmap(int(36 * dpr), small=True)
         if logo is not None:
             logo.setDevicePixelRatio(dpr)     # crisp on high-DPI screens
-            logo_label = QLabel()
             logo_label.setPixmap(logo)
-            brand_lay.addWidget(logo_label)
-        brand_text = QLabel("SD TIME")
-        brand_text.setObjectName("BrandText")
-        brand_lay.addWidget(brand_text)
-        brand_lay.addStretch(1)
+        logo_label.setToolTip("SD Time")
         self.nav = QListWidget()
-        self.nav.setObjectName("Nav")
+        self.nav.setObjectName("Rail")
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.nav.setIconSize(QSize(20, 20))
+        self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav.setIconSize(QSize(22, 22))
         self.stack = QStackedWidget()
         self.pages: list[QWidget] = []
         self._row_to_page: dict[int, int] = {}
-        dpr = self.devicePixelRatioF()
-        for icon, text, page_cls in NAV:
-            item = QListWidgetItem(text)
-            if page_cls is None:
-                # Section header: disabled item, styled muted & small via #Nav::item:disabled.
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                font = item.font()
-                font.setPointSizeF(8)
-                font.setBold(True)
-                font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2)
-                item.setFont(font)
-                self.nav.addItem(item)
-                continue
-            item.setIcon(nav_icon(icon, dpr))
+        for icon, tip, page_cls in NAV:
+            item = QListWidgetItem()
+            item.setIcon(nav_icon(icon, dpr, 22))
+            item.setToolTip(tip)
+            item.setSizeHint(QSize(RAIL_W, 52))
             self.nav.addItem(item)
             page = page_cls(self)
             self._row_to_page[self.nav.count() - 1] = len(self.pages)
@@ -132,16 +120,16 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._on_nav)
 
         self.side_timer = QLabel()
-        self.side_timer.setObjectName("Muted")
-        self.side_timer.setWordWrap(True)
-        self.side_timer.setContentsMargins(19, 8, 12, 16)
+        self.side_timer.setObjectName("RailTimer")
+        self.side_timer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.side_timer.setContentsMargins(0, 6, 0, 16)
         self.side_timer.setCursor(Qt.CursorShape.PointingHandCursor)
         self.side_timer.mousePressEvent = lambda _e: self.go(self.tracker)
 
         sl = QVBoxLayout(sidebar)
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(0)
-        sl.addWidget(brand)
+        sl.addWidget(logo_label)
         sl.addWidget(self.nav, 1)
         sl.addWidget(self.side_timer)
 
@@ -183,7 +171,7 @@ class MainWindow(QMainWindow):
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         self.tray_menu.addSeparator()
         for text, slot in (("Open SD Time", self.show_window),
-                           ("Reports", lambda: (self.show_window(), self.go(self.pages[3])))):
+                           ("Insights", lambda: (self.show_window(), self.go(self.pages[3])))):
             act = QAction(text, self)
             act.triggered.connect(slot)
             self.tray_menu.addAction(act)
@@ -353,9 +341,15 @@ class MainWindow(QMainWindow):
             self.notify()
 
     # -- answers to the pomodoro questions
+    def _log_focus(self, outcome: str) -> None:
+        """Record the focus session that just ended (counted in Insights)."""
+        end = self.pomo.end
+        self.db.log_focus(end - self.pomo.config.focus, end, self.pomo.entry_id, outcome)
+
     def take_break(self) -> None:
         if self.pomo.phase != ASK:
             return
+        self._log_focus("break")
         running = self.db.running_entry()
         if running is not None and running["id"] == self.pomo.entry_id:
             self.db.stop(now=self.pomo.end)          # track exactly the focus length
@@ -368,6 +362,7 @@ class MainWindow(QMainWindow):
     def skip_break_keep_working(self) -> None:
         if self.pomo.phase != ASK:
             return
+        self._log_focus("skip")
         running = self.db.running_entry()
         if running is not None and running["id"] == self.pomo.entry_id:
             self.pomo.skip_break(running["id"], int(time.time()))
@@ -522,12 +517,14 @@ class MainWindow(QMainWindow):
             if phase == BREAK:
                 self.tray.setToolTip(f"SD Time — {self.pomo.label()}: {left} left")
                 self.setWindowTitle(f"Break {left} · SD Time")
-                self.side_timer.setText(f'<span style="color:{C["accent_text"]}">'
-                                        f'<b>{left}</b></span><br>{self.pomo.label()}')
+                self.side_timer.setText(f'<span style="color:{C["muted"]}">break</span><br>'
+                                        f'{self._short(self.pomo.remaining(int(time.time())))}')
+                self.side_timer.setToolTip(f"{self.pomo.label()}: {left} left")
             else:
                 self.tray.setToolTip("SD Time — timer stopped")
                 self.setWindowTitle("SD Time")
                 self.side_timer.setText("")
+                self.side_timer.setToolTip("")
             return
         elapsed = fmt_clock(self.db.duration(e))
         title = self._entry_title(e)
@@ -540,9 +537,18 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"{elapsed} · SD Time")
             shown, subtitle = elapsed, title
         color = e["project_color"] or C["accent_text"]
-        self.side_timer.setText(f'<span style="color:{color}">●</span> '
-                                f'<span style="color:{C["text"]}"><b>{shown}</b></span><br>'
-                                f'{subtitle}')
+        secs = (self.pomo.remaining(int(time.time())) if phase == FOCUS
+                else self.db.duration(e))
+        self.side_timer.setText(f'<span style="color:{color}">●</span><br>{self._short(secs)}')
+        self.side_timer.setToolTip(f"{shown} · {subtitle}")
+
+    @staticmethod
+    def _short(seconds: int) -> str:
+        """Compact time for the narrow rail: 12:57 under an hour, else 1:23 (h:mm)."""
+        seconds = max(0, int(seconds))
+        if seconds < 3600:
+            return f"{seconds // 60:02d}:{seconds % 60:02d}"
+        return f"{seconds // 3600}:{seconds % 3600 // 60:02d}"
 
     # ================================================================ window
     def show_window(self) -> None:

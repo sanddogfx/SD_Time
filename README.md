@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-installer-8db837?style=for-the-badge"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.1-555?style=for-the-badge">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-555?style=for-the-badge">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-555?style=for-the-badge">
 </p>
 
@@ -27,37 +27,37 @@
 ## Features
 
 **Track**
-- **One-click timer** in the app and in the system tray, plus a **global hotkey** (`Ctrl+Alt+T`) that works from any program.
-- **Autocomplete** from earlier entries — picking one also fills in its project and task.
-- Entries grouped by **week and day** with totals and earnings; edit inline, continue, duplicate, delete, or add time manually.
+- **A ring timer** that doubles as Pomodoro progress, one big start/stop button, and a **global hotkey** (`Ctrl+Alt+T`) that works from any program.
+- **Start again** with one click on your recent activities; **autocomplete** fills in project and task.
+- **Today** as a time ribbon plus compact lines; earlier days fold into one line each and open on click.
 - Accidental start/stop clicks (under 5 seconds) are not saved.
 
 **Organise and bill**
-- **Clients → projects → tasks**; client and task are optional.
+- **Clients → projects → tasks**; client and task are optional. Projects show as tinted chips.
 - **Hourly rates** inherited task → project → client → default, with amounts everywhere.
 - Archive instead of delete; deleting keeps your time entries.
 
 **See where the time went**
-- **Calendar** week / day view — drag to create entries, drag to move them, drag an edge to resize.
-- **Timesheet** — a week grid; type `1:30` or `1.5` into a cell.
-- **Reports** — stacked bars by day, grouped totals, donut chart, **Excel and CSV export**.
+- **Week** — days are rows and hours run left to right (also Day and Month). Drag to log time, drag a block to move it to another time or day, drag its edges to resize.
+- **Timesheet** — a week ledger of pills; type `1:30` or `1.5`. A **gap finder** spots untracked time between entries and fills it in one click.
+- **Insights** — tracked, billable, per-workday and focus-session numbers, a 12-week heatmap, ranked projects / clients / tasks, a by-client strip, **Excel and CSV export**.
 
 **Focus**
-- **Pomodoro mode** — focus countdown, a chime, then *take a break or keep working?* Only focus time is tracked. Long break every 4 sessions; all lengths configurable.
+- **Pomodoro mode** — focus countdown, a chime, then *take a break or keep working?* Only focus time is tracked; sessions are counted in Insights. Long break every 4 sessions; all lengths configurable.
 
 **Feels at home on Windows**
 - Real installer, Start menu shortcut, optional **start with Windows**, lives quietly in the tray.
-- Dark grey theme with an olive-green accent.
+- Dark theme with an olive-green accent, icon rail, rounded cards, monospaced digits.
 
 ## Screenshots
 
-| Calendar | Reports |
+| Week | Insights |
 |---|---|
-| <img src="docs/screenshots/calendar.png" alt="Calendar week view"> | <img src="docs/screenshots/reports.png" alt="Reports"> |
-| **Timesheet** | **Projects** |
-| <img src="docs/screenshots/timesheet.png" alt="Timesheet"> | <img src="docs/screenshots/projects.png" alt="Projects"> |
-| **Pomodoro** | **Settings** |
-| <img src="docs/screenshots/pomodoro.png" alt="Pomodoro prompt"> | <img src="docs/screenshots/settings.png" alt="Settings"> |
+| <img src="docs/screenshots/week.png" alt="Week: days as rows"> | <img src="docs/screenshots/insights.png" alt="Insights"> |
+| **Timesheet with gap finder** | **Month** |
+| <img src="docs/screenshots/timesheet.png" alt="Timesheet ledger"> | <img src="docs/screenshots/month.png" alt="Month view"> |
+| **Projects** | **Pomodoro** |
+| <img src="docs/screenshots/projects.png" alt="Projects"> | <img src="docs/screenshots/pomodoro.png" alt="Pomodoro prompt"> |
 
 ## Install
 
@@ -79,8 +79,9 @@ Nothing is sent anywhere. To back up, copy that folder.
 | Start / stop from anywhere | `Ctrl+Alt+T` (change it in Settings) |
 | Show / hide the window | left-click the tray icon |
 | Quick actions | right-click the tray icon |
-| Continue a past activity | ▷ on its row, or *Continue* in the tray menu |
-| Fix a forgotten timer | drag its block in the Calendar, or click the time range |
+| Continue a past activity | *Start again* card, ▷ on its row, or *Continue* in the tray menu |
+| Fix a forgotten timer | drag its block in Week, or click the time range |
+| Fill untracked time | the gap finder on the Timesheet page |
 
 ## Build from source
 
@@ -112,7 +113,7 @@ Screenshots for this page: `.\.venv\Scripts\python.exe tools\make_screenshots.py
 sd_time/            app package
   db.py             SQLite storage, migrations, rates
   main_window.py    window, tray, hotkey, Pomodoro controller
-  pages/            tracker, calendar, timesheet, reports, projects/clients/settings
+  pages/            today (tracker), week, ledger (timesheet), insights, manage
   pomodoro.py       Pomodoro state machine
   theme.py          colours and stylesheet
   icons.py          logo and line icons

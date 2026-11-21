@@ -15,7 +15,7 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 
-os.environ.setdefault("QT_SCALE_FACTOR", "1.5")   # crisp, high-DPI images
+os.environ.setdefault("QT_SCALE_FACTOR", "1.25")  # crisp images; 1280x800 still fits a 1080p screen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -74,7 +74,7 @@ WEIGHTS = {"brand": 5, "web": 2, "trailer": 6, "capsules": 2, "promo": 3, "inter
 
 random.seed(7)
 today = date.today()
-for back in range(16, 0, -1):          # past days (today is filled separately)
+for back in range(84, 0, -1):          # 12 weeks back (today is filled separately)
     d = today - timedelta(days=back)
     if d.weekday() >= 5:
         continue
@@ -86,6 +86,8 @@ for back in range(16, 0, -1):          # past days (today is filled separately)
         dur = random.choice([1800, 2700, 3600, 5400, 7200])
         db.add_entry(t, min(t + dur, end_of_day), pid, random.choice(task_ids[key]),
                      random.choice(DESCRIPTIONS[key]))
+        if dur >= 3600 and random.random() < 0.6:      # a Pomodoro focus inside longer blocks
+            db.log_focus(t, t + 1500, None, "break" if random.random() < 0.8 else "skip")
         t += dur + random.choice([0, 600, 900, 1800])
 
 # today: a few finished entries, then a running timer with a Pomodoro focus session
@@ -127,19 +129,20 @@ w.notify()
 w.go(w.tracker)
 shot("tracker")
 
-cal = w.pages[1]
-w.go(cal)
-pump()
-cal.scroll.verticalScrollBar().setValue(int(7.5 * cal.view.hour_h))
-shot("calendar")
+w.go(w.pages[1])
+shot("week")
+wk = w.pages[1]
+wk._set_mode("month")
+shot("month")
+wk._set_mode("week")
 
 w.go(w.pages[2])
 shot("timesheet")
 
 rp = w.pages[3]
 w.go(rp)
-rp.period.setCurrentIndex(rp.period.findData("last_week"))
-shot("reports")
+rp._set_kind("month")
+shot("insights")
 
 w.go(w.pages[4])
 shot("projects")

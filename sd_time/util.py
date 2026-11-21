@@ -90,6 +90,13 @@ def day_title(d: date, today: date | None = None) -> str:
     return f"{d:%a}, {d:%b} {d.day}"
 
 
+def fmt_words(seconds: float) -> str:
+    """3h 12m (or 45m) — for totals in pills and headers."""
+    minutes = max(0, int(seconds)) // 60
+    h, m = divmod(minutes, 60)
+    return f"{h}h {m:02d}m" if h else f"{m}m"
+
+
 def fmt_hm(seconds: float) -> str:
     minutes = max(0, int(seconds)) // 60
     h, m = divmod(minutes, 60)

@@ -32,6 +32,7 @@ def make_table(headers: list[str], stretch_col: int = 0) -> QTableWidget:
     t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     t.setShowGrid(False)
     h = t.horizontalHeader()
+    h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     for i in range(len(headers)):
         h.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch if i == stretch_col
                                else QHeaderView.ResizeMode.ResizeToContents)
@@ -74,7 +75,7 @@ class ProjectsPage(QWidget):
         self.table.customContextMenuRequested.connect(self._menu)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 10)
+        root.setContentsMargins(30, 26, 30, 20)
         root.setSpacing(14)
         root.addLayout(top)
         root.addLayout(bar)
@@ -200,7 +201,7 @@ class ClientsPage(QWidget):
         top.addWidget(self.show_archived)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 10)
+        root.setContentsMargins(30, 26, 30, 20)
         root.setSpacing(14)
         root.addLayout(top)
         root.addWidget(add_card)
@@ -363,7 +364,7 @@ class SettingsPage(QWidget):
                             "tracked; when it ends the entry stops and the break starts.", "Small"))
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 10)
+        root.setContentsMargins(30, 26, 30, 20)
         root.setSpacing(14)
         root.addWidget(label("Settings", "H1"))
         cards = QHBoxLayout()

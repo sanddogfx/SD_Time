@@ -120,6 +120,14 @@ _NAV_SVG = {
                 '<circle cx="17" cy="17" r="2"/>',
     "plus": '<circle cx="12" cy="12" r="8.5"/><path d="M12 8.2v7.6M8.2 12h7.6"/>',
     "add": '<path d="M12 5.5v13M5.5 12h13"/>',
+    "pencil": '<path d="M5 19h4L19 9l-4-4L5 15z"/>',
+    "skip": '<path d="M6 6.5l8 5.5-8 5.5zM17.5 6v12"/>',
+    "chevron": '<path d="M9 6l6 6-6 6"/>',
+    "close": '<path d="M7 7l10 10M17 7L7 17"/>',
+    "chevron-down": '<path d="M6 9l6 6 6-6"/>',
+    "left": '<path d="M15 6l-6 6 6 6"/>',
+    "download": '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
+    "gap": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/><path d="M4 4l3 3"/>',
     "play": '<path d="M8.5 6.2v11.6c0 .6.6.9 1.1.6l9-5.8c.5-.3.5-1 0-1.3l-9-5.8c-.5-.3-1.1 0-1.1.7z"/>',
     "more": '<circle cx="12" cy="6" r=".9"/><circle cx="12" cy="12" r=".9"/>'
             '<circle cx="12" cy="18" r=".9"/>',
@@ -168,6 +176,28 @@ TOMATO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
 def tomato_pixmap(size: int, dpr: float = 1.0) -> QPixmap:
     px = max(size, int(round(size * dpr)))
     renderer = QSvgRenderer(QByteArray(TOMATO_SVG.encode("utf-8")))
+    pm = QPixmap(px, px)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(p, QRectF(0, 0, px, px))
+    p.end()
+    pm.setDevicePixelRatio(px / size)
+    return pm
+
+
+_FILLED_SVG = {
+    "play": '<path d="M8 5.6v12.8c0 .8.9 1.3 1.6.8l10-6.4c.6-.4.6-1.2 0-1.6l-10-6.4C8.9 4.3 8 4.8 8 5.6z"/>',
+    "stop": '<rect x="6" y="6" width="12" height="12" rx="2.5"/>',
+}
+
+
+def filled_pixmap(name: str, color: str, size: int, dpr: float = 1.0) -> QPixmap:
+    """Solid glyph (play / stop) for the round timer button."""
+    px = max(size, int(round(size * dpr)))
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="{color}">'
+           f'{_FILLED_SVG[name]}</svg>')
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
     pm = QPixmap(px, px)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)

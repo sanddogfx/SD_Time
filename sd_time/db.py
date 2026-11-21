@@ -18,7 +18,7 @@ import time
 from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 CLIENTS_DDL = """
 CREATE TABLE IF NOT EXISTS clients (
@@ -57,6 +57,15 @@ CREATE TABLE {name} (
     end_ts      INTEGER
 )"""
 META_DDL = "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
+# v4: finished Pomodoro focus sessions (for Insights). outcome: "break" | "skip".
+FOCUS_DDL = """
+CREATE TABLE IF NOT EXISTS focus_sessions (
+    id       INTEGER PRIMARY KEY,
+    start_ts INTEGER NOT NULL,
+    end_ts   INTEGER NOT NULL,
+    entry_id INTEGER,
+    outcome  TEXT    NOT NULL DEFAULT 'break'
+)"""
 INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_entries_start   ON entries(start_ts);
 CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id);
@@ -167,6 +176,8 @@ class Database:
         self.conn.execute(TASKS_DDL.format(name="IF NOT EXISTS tasks"))
         self.conn.execute(ENTRIES_DDL.format(name="IF NOT EXISTS entries"))
         self.conn.execute(META_DDL)
+        self.conn.execute(FOCUS_DDL)
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_focus_start ON focus_sessions(start_ts)")
         self.conn.executescript(INDEXES)
         self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.conn.commit()
@@ -537,6 +548,41 @@ class Database:
             item["seconds"] += r["seconds"]
             item["amount"] += money(r["seconds"], rate)
         return out
+
+    # ======================================================= focus sessions
+    def log_focus(self, start_ts: int, end_ts: int, entry_id: int | None,
+                  outcome: str = "break") -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO focus_sessions (start_ts, end_ts, entry_id, outcome) VALUES (?, ?, ?, ?)",
+                (int(start_ts), int(end_ts), entry_id, outcome))
+
+    def focus_sessions(self, t0: int, t1: int) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM focus_sessions WHERE end_ts >= ? AND end_ts < ? ORDER BY end_ts",
+            (t0, t1)).fetchall()
+
+    # ================================================================= gaps
+    def find_gaps(self, d0: date, d1: date, min_gap: int = 30 * 60) -> list[dict]:
+        """Untracked stretches inside a working day: between the end of one finished entry
+        and the start of the next one on the same day, at least `min_gap` seconds long.
+        Time before the first and after the last entry of a day is not a gap."""
+        gaps: list[dict] = []
+        d = d0
+        while d <= d1:
+            t0, t1 = day_start_ts(d), day_start_ts(d + timedelta(days=1))
+            rows = [e for e in self.entries(t0, t1) if e["end_ts"] is not None]
+            rows.sort(key=lambda e: e["start_ts"])
+            reach = None          # latest end so far (handles overlapping entries)
+            before = None
+            for e in rows:
+                if reach is not None and e["start_ts"] - reach >= min_gap:
+                    gaps.append({"day": d, "start": reach, "end": e["start_ts"],
+                                 "before": before, "after": e})
+                if reach is None or e["end_ts"] > reach:
+                    reach, before = e["end_ts"], e
+            d += timedelta(days=1)
+        return gaps
 
     # ============================================================= timesheet
     def set_day_total(self, d: date, project_id: int | None, task_id: int | None,
