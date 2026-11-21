@@ -1,4 +1,4 @@
-; Inno Setup script for SD Time вЂ” build with  .\build.ps1
+; Inno Setup script for SD Time - build with  .\build.ps1
 ; Per-user install (no admin rights), Start menu shortcut, optional desktop shortcut and
 ; autostart, clean uninstall. Your time data in %APPDATA%\SD_Time is kept unless you
 ; choose to delete it when uninstalling.
