@@ -5,6 +5,15 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-21
+
+### Fixed
+- Timesheet: "Add new row" shows the line plus icon instead of a font glyph.
+- Reports: group titles no longer truncated next to the donut chart.
+
+### Added
+- README with screenshots; `tools/make_screenshots.py` renders them on demo data.
+
 ## [0.2.0] - 2026-11-21
 
 ### Added
