@@ -16,11 +16,6 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
 - `build.ps1`: one-command build with a self-test of the built app (`--selftest`).
 - Version shown in Settings.
 
-### Changed
-- Sidebar: line icons, no section headers, even left edge; small-size logo with a soft contour.
-- Inputs: visible borders and dropdown arrows; −/+ steppers in Pomodoro settings.
-- Pomodoro button: red tomato icon with a dark outline, same height as START.
-
 ## [0.1.0] - 2026-11-21
 
 First version.
