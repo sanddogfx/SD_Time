@@ -5,6 +5,37 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
 
 ## [Unreleased]
 
+### Added
+- **Delete from the calendar**: right-click a block on the Week page for *Continue*, *Edit…*,
+  *Duplicate* and *Delete…* (the same menu as ⋮ in the Tracker list).
+- The *Edit time entry* window has a **Delete** button (asks first).
+- **Several currencies**. Settings → *Currencies* lists the ones you bill in: *+ Add* a code,
+  click one to make it the default or remove it (not while a rate uses it). Every hourly
+  rate (client, project, task) has a currency picker next to it; an empty rate inherits the
+  rate *and* its currency. Amounts are shown per currency and never converted:
+  "2,501 USD · 112 EUR" on the Tracker, Week, Projects, Clients and Insights. CSV and Excel
+  exports get a *Currency* column, the Excel summary one amount column per currency.
+  Changing the default currency keeps existing rates in the currency they were set in.
+- Insights → *Where the time went* ends with a **Total** line: all hours and the amount per
+  currency for the period.
+- **Settings → Day view**: the hours the Today ribbon and the Week calendar always show
+  (was fixed at 8:00–19:00). Entries outside them and the running timer still widen the view.
+
+### Changed
+- Time entry window: *Start* and *End* are a date picker plus a separate time field. Click
+  the time and just type: `1245` → 12:45, `930` → 9:30, `9` → 9:00 (`12:45` works too);
+  ↑/↓ move it by 5 minutes, a typo goes back to the previous time.
+- The mini timer button moved from the page header into the timer card (top right, next to
+  the break countdown) and got a clearer icon: a window on top of another.
+
+### Fixed
+- *Start again* shows the task too ("Daifuku · Rigging"), so two tasks of one project no
+  longer look the same. Long lines end in "…"; the full text is in the tooltip.
+- Tracker on a small window: the left column scrolls instead of squashing the task name and
+  the *Start again* rows. Today's rows no longer run off the right edge: on a narrow list the
+  project pill shortens to "Launch Trai…", the amount moves to the duration's tooltip and
+  *Continue* moves to the ⋮ menu (it is now in that menu everywhere).
+
 ## [0.5.0] - 2026-11-21
 
 Stay up to date.

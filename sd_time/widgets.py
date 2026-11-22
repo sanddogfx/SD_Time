@@ -4,10 +4,10 @@ from __future__ import annotations
 import html
 from contextlib import contextmanager
 
-from PySide6.QtCore import QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor
+from PySide6.QtCore import QDateTime, QPoint, QRegularExpression, QSize, Qt, QTime, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QRegularExpressionValidator
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QSizePolicy, QSpinBox, QToolButton,
+    QAbstractSpinBox, QComboBox, QDateEdit, QSizePolicy, QSpinBox, QToolButton,
     QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from .db import NO_COLOR, Database
 from .icons import color_icon, inline_icon_html
 from .theme import C, CTRL_H
-from .util import fmt_rate, parse_rate
+from .util import fmt_rate, parse_clock, parse_rate
 
 ROLE = Qt.ItemDataRole.UserRole
 ADD_TASK = Qt.ItemDataRole.UserRole + 2      # project id on a picker "+ Add task" row
@@ -136,6 +136,143 @@ class RateEdit(QLineEdit):
 
     def value(self) -> float | None:
         return parse_rate(self.text())
+
+
+class TimeField(QLineEdit):
+    """Time of day you just type over: click, type 1245, get 12:45. Also 12:45, 930, 9.
+    ↑/↓ step 5 minutes. A typo goes back to the last good time."""
+
+    changed = Signal()
+
+    def __init__(self, t: QTime | None = None, parent=None):
+        super().__init__(parent)
+        self._time = t or QTime(9, 0)
+        self.setFixedWidth(84)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMaxLength(5)
+        self.setValidator(QRegularExpressionValidator(QRegularExpression(r"[0-9.:, ]{0,5}"), self))
+        self.setToolTip("Type the time: 1245 → 12:45, 930 → 9:30, 9 → 9:00. ↑/↓: 5 minutes.")
+        self._show()
+        self.editingFinished.connect(self._commit)
+
+    def time(self) -> QTime:
+        try:                                  # what is typed counts even before Enter / Tab
+            h, m = parse_clock(self.text())
+            return QTime(h, m)
+        except ValueError:
+            return self._time
+
+    def setTime(self, t: QTime) -> None:
+        self._time = QTime(t.hour(), t.minute())
+        self._show()
+
+    def _show(self) -> None:
+        self.setText(self._time.toString("HH:mm"))
+
+    def _commit(self) -> None:
+        new = self.time()
+        changed = new != self._time
+        self._time = new
+        self._show()
+        if changed:
+            self.changed.emit()
+
+    def _step(self, minutes: int) -> None:
+        self._time = self.time().addSecs(minutes * 60)
+        self._show()
+        self.selectAll()
+        self.changed.emit()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            self._step(5 if event.key() == Qt.Key.Key_Up else -5)
+            return
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event) -> None:
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self.selectAll)  # after the click, so typing replaces the time
+
+    def mousePressEvent(self, event) -> None:
+        if not self.hasFocus():               # first click selects all, later clicks place the caret
+            self.setFocus()
+            return
+        super().mousePressEvent(event)
+
+
+class DateTimeField(QWidget):
+    """[ddd, MMM d yyyy ▾] [HH:mm]: a date picker and a TimeField side by side.
+    Same calls as QDateTimeEdit: dateTime(), setDateTime(), dateTimeChanged."""
+
+    dateTimeChanged = Signal(QDateTime)
+
+    def __init__(self, dt: QDateTime, parent=None):
+        super().__init__(parent)
+        self.date_edit = QDateEdit(dt.date(), calendarPopup=True, displayFormat="ddd, MMM d yyyy")
+        self.time_edit = TimeField(dt.time())
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+        lay.addWidget(self.date_edit, 1)
+        lay.addWidget(self.time_edit)
+        self.date_edit.dateChanged.connect(lambda _d: self.dateTimeChanged.emit(self.dateTime()))
+        self.time_edit.changed.connect(lambda: self.dateTimeChanged.emit(self.dateTime()))
+
+    def dateTime(self) -> QDateTime:
+        return QDateTime(self.date_edit.date(), self.time_edit.time())
+
+    def setDateTime(self, dt: QDateTime) -> None:
+        self.time_edit.setTime(dt.time())
+        self.date_edit.setDate(dt.date())     # emits dateTimeChanged if the date moved
+        self.dateTimeChanged.emit(self.dateTime())
+
+
+class CurrencyBox(QComboBox):
+    """Pick one of the user's currencies (Settings → Currencies)."""
+
+    def __init__(self, db: Database, currency: str | None = None, parent=None):
+        super().__init__(parent)
+        self.db = db
+        codes = db.currencies
+        current = currency or db.currency
+        if current not in codes:          # set earlier, since removed from the list: keep it
+            codes = codes + [current]
+        self.addItems(codes)
+        self.setCurrentText(current)
+        self.setFixedWidth(96)
+
+    def value(self) -> str:
+        return self.currentText()
+
+
+class RateField(QWidget):
+    """[rate] [currency ▾]. Empty rate = inherit: the currency is then inherited too."""
+
+    def __init__(self, db: Database, rate: float | None = None, currency: str | None = None,
+                 inherited: str = "", parent=None):
+        super().__init__(parent)
+        self.edit = RateEdit(rate, inherited)
+        self.box = CurrencyBox(db, currency)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(8)
+        lay.addWidget(self.edit, 1)
+        lay.addWidget(self.box)
+        self.edit.textChanged.connect(self._sync)
+        self._sync()
+
+    def _sync(self) -> None:
+        self.box.setEnabled(bool(self.edit.text().strip()))
+
+    def setPlaceholderText(self, text: str) -> None:
+        self.edit.setPlaceholderText(text)
+
+    def value(self) -> float | None:
+        return self.edit.value()
+
+    def currency(self) -> str | None:
+        """The chosen currency, or None when the rate is inherited."""
+        return self.box.value() if self.edit.text().strip() else None
 
 
 # ----------------------------------------------------------- project picker
@@ -305,6 +442,14 @@ class ProjectPopup(QFrame):
         self.close()
 
 
+class NoSqueeze(QWidget):
+    """Scroll-area content that scrolls instead of squeezing: many styles set min-height: 0,
+    so the layout's own minimum would let rows collapse when the viewport is short."""
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(super().minimumSizeHint().width(), self.sizeHint().height())
+
+
 class ProjectPicker(QLabel):
     """Clickable "● Project: Task - Client" label that opens ProjectPopup."""
 
@@ -321,6 +466,9 @@ class ProjectPicker(QLabel):
         self.setObjectName("Picker")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setTextFormat(Qt.TextFormat.RichText)
+        self._full: str | None = None          # "Project · Task", elided to the width it gets
+        self._fg = ""
+        self._full_hint: QSize | None = None
         self._render()
 
     def set_value(self, project_id: int | None, task_id: int | None) -> None:
@@ -334,7 +482,7 @@ class ProjectPicker(QLabel):
             self._show(None, None, None, None, None)
         else:
             self._show(e["project_name"], e["project_color"], e["task_name"], e["client_name"],
-                       e["own_rate"])
+                       e["own_rate"], e["own_currency"])
 
     def _render(self) -> None:
         p = self.db.get_project(self.project_id) if self.project_id else None
@@ -342,10 +490,12 @@ class ProjectPicker(QLabel):
         if p is None:
             self._show(None, None, None, None, None)
         else:
+            row = t or p
             self._show(p["name"], p["color"], t["name"] if t else None, p["client_name"],
-                       t["own_rate"] if t else p["own_rate"])
+                       row["own_rate"], row["own_currency"])
 
-    def _show(self, project, color, task, client, rate) -> None:
+    def _show(self, project, color, task, client, rate, currency=None) -> None:
+        self._full = None
         if project is None:
             icon = inline_icon_html("plus", C["accent_text"], 15, self.devicePixelRatioF())
             self.setText(f'{icon}&nbsp;<span style="color:{C["accent_text"]}">'
@@ -356,13 +506,45 @@ class ProjectPicker(QLabel):
             return
         # A tinted pill in the project's colour: "Project · Task"; client and rate in the tooltip.
         bg, fg = chip_colors(color)
-        text = html.escape(project) + (f" · {html.escape(task)}" if task else "")
-        self.setText(f'<span style="color:{fg}">{text}</span>')
+        self._full = project + (f" · {task}" if task else "")
+        self._fg = fg
+        self._full_hint = None
+        self._fit_text()
         self.setStyleSheet(f"QLabel#Picker {{ background: {bg}; }}"
                            f"QLabel#Picker:hover {{ background: {mix(color or NO_COLOR, C['card'], 0.65)}; }}")
         if rate is None:
-            rate = self.db.default_rate
-        self.setToolTip(" · ".join(x for x in (client, f"Rate: {fmt_rate(rate, self.db.currency)}") if x))
+            rate, currency = self.db.default_rate, None
+        cur = currency or self.db.currency
+        self.setToolTip(" · ".join(x for x in (client, f"Rate: {fmt_rate(rate, cur)}") if x))
+
+    # Short of room the pill shrinks to "Launch Trai…" instead of pushing its row wider.
+    MIN_W = 64
+
+    def _fit_text(self) -> None:
+        if self._full is None:
+            return
+        if self._full_hint is None:
+            self.setText(f'<span style="color:{self._fg}">{html.escape(self._full)}</span>')
+            self._full_hint = super().sizeHint()
+            self.updateGeometry()
+        room = self.contentsRect().width()
+        text = self._full
+        if room > 0 and self.width() < self._full_hint.width():
+            text = self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, room)
+        self.setText(f'<span style="color:{self._fg}">{html.escape(text)}</span>')
+
+    def sizeHint(self) -> QSize:
+        return self._full_hint if self._full is not None and self._full_hint else super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        hint = self.sizeHint()
+        if self._full is None:
+            return super().minimumSizeHint()
+        return QSize(min(self.MIN_W, hint.width()), hint.height())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit_text()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

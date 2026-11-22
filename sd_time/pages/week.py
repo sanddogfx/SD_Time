@@ -1,8 +1,8 @@
 """Week page: days as rows, hours running left to right. Day / Week / Month.
 
 Drag on an empty row to log time, drag a block to move it (also to another day), drag its
-left or right edge to change start or end, click to edit, double-click for a one-hour entry,
-Esc cancels a drag.
+left or right edge to change start or end, click to edit, right-click for Continue / Duplicate /
+Delete, double-click for a one-hour entry, Esc cancels a drag.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from .. import theme
 from ..db import NO_COLOR, day_start_ts
 from ..icons import hover_icon
 from ..theme import C
-from ..util import fmt_clock, fmt_hm, fmt_money, fmt_time, fmt_words, week_start
+from ..util import fmt_amounts, fmt_clock, fmt_hm, fmt_money, fmt_time, fmt_words, week_start
 from ..widgets import (button, card, chip_label, clear_layout, header_pill, label, nav_button,
                        segmented, show_error)
 
@@ -106,7 +106,7 @@ class WeekRows(QWidget):
         days = self.days
         t0, t1 = day_start_ts(days[0]), day_start_ts(days[-1] + timedelta(days=1))
         self.data = self.db.entries(t0, t1)
-        lo, hi = 8.0, 19.0
+        lo, hi = self.page.ctl.day_hours()
         now = time.time()
         for e in self.data:
             day0 = day_start_ts(datetime.fromtimestamp(e["start_ts"]).date())
@@ -430,6 +430,14 @@ class WeekRows(QWidget):
                 self._drag = None
                 self.page.ctl.new_entry(start_ts=slot[1], end_ts=slot[1] + 3600)
 
+    def contextMenuEvent(self, event) -> None:
+        if self._edit or self._drag:
+            return
+        hit = self._hit(QPointF(event.pos()))
+        if hit:
+            QToolTip.hideText()
+            self.page.ctl.entry_menu(hit[0]["id"], event.globalPos(), self)
+
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape and (self._edit or self._drag):
             self._edit = self._drag = self._press = None
@@ -543,8 +551,8 @@ class WeekPage(QWidget):
         self.view.reload()
         totals = self.view.day_totals()
         total = sum(totals.values())
-        amount = sum(self.db.amount(e) for e in self.view.data)
-        self.total_pill.setText(fmt_words(total) + (f" · {amount:,.0f} {self.db.currency}" if amount else ""))
+        money_text = fmt_amounts(self.db.amounts(self.view.data), short=True, order=self.db.currencies)
+        self.total_pill.setText(fmt_words(total) + (f" · {money_text}" if money_text else ""))
         clear_layout(self.legend)
         per_project: dict = {}
         for e in self.view.data:

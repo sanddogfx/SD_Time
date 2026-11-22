@@ -9,8 +9,8 @@ import csv
 import math
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QMenu, QMessageBox, QScrollArea,
     QToolTip, QVBoxLayout, QWidget,
@@ -20,7 +20,8 @@ from .. import theme
 from ..db import NO_COLOR, PALETTE, day_start_ts
 from ..icons import color_icon, hover_icon, tomato_pixmap
 from ..theme import C
-from ..util import fmt_clock, fmt_date, fmt_hm, fmt_money, fmt_time, fmt_words, week_start
+from ..util import (fmt_amounts, fmt_clock, fmt_date, fmt_hm, fmt_money, fmt_time, fmt_words,
+                    short_money, week_start)
 from ..widgets import button, card, label, nav_button, segmented, show_error
 
 ALL, NONE = "__all__", "__none__"
@@ -109,17 +110,21 @@ class Heatmap(QWidget):
 
 
 class RankedBars(QWidget):
-    """name · bar · hours · amount, longest first."""
+    """name · bar · hours · amount, longest first; a Total line under them."""
 
     ROW = 34
+    GAP = 8          # space above the Total line
 
     def __init__(self):
         super().__init__()
         self.rows: list[tuple[str, str, int, str]] = []
+        self.total: tuple[int, str] | None = None
 
-    def set(self, rows) -> None:
+    def set(self, rows, total: tuple[int, str] | None = None) -> None:
         self.rows = rows
-        self.setFixedHeight(max(1, len(rows)) * self.ROW)
+        self.total = total if rows else None
+        extra = self.ROW + self.GAP if self.total else 0
+        self.setFixedHeight(max(1, len(rows)) * self.ROW + extra)
         self.update()
 
     def paintEvent(self, _event) -> None:
@@ -130,7 +135,11 @@ class RankedBars(QWidget):
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                        "No time tracked in this period.")
             return
-        name_w, hours_w, amount_w = 170, 64, 96
+        name_w, hours_w = 170, 64
+        texts = [r[3] for r in self.rows] + ([self.total[1]] if self.total else [])
+        bold = QFont(self.font())
+        bold.setWeight(QFont.Weight.DemiBold)
+        amount_w = max([96] + [QFontMetrics(bold).horizontalAdvance(t) + 24 for t in texts])
         bar_x = name_w + 12
         bar_w = max(40, self.width() - bar_x - hours_w - amount_w - 24)
         top = max(s for _, _, s, _ in self.rows) or 1
@@ -156,6 +165,22 @@ class RankedBars(QWidget):
             p.setPen(QColor(C["muted"]))
             p.drawText(QRectF(bar_x + bar_w + 12 + hours_w, y, amount_w, self.ROW),
                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, amount)
+        if self.total:
+            secs, amount = self.total
+            y = len(self.rows) * self.ROW + self.GAP
+            p.setPen(QPen(QColor(C["card_border"]), 1))
+            p.drawLine(QPointF(0, y - self.GAP / 2), QPointF(self.width(), y - self.GAP / 2))
+            right = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+            p.setFont(bold)
+            p.setPen(QColor(C["text"]))
+            p.drawText(QRectF(0, y, name_w, self.ROW),
+                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "Total")
+            mono = theme.mono(9.5)
+            mono.setWeight(QFont.Weight.DemiBold)
+            p.setFont(mono)
+            p.drawText(QRectF(bar_x + bar_w + 12, y, hours_w, self.ROW), right, fmt_hm(secs))
+            p.setFont(bold)
+            p.drawText(QRectF(bar_x + bar_w + 12 + hours_w, y, amount_w, self.ROW), right, amount)
 
 
 class StackedStrip(QWidget):
@@ -402,7 +427,7 @@ class InsightsPage(QWidget):
             "year": f"Insights · {d0.year}"}[self.kind])
         self.entries = self._query(d0, d1)
         total = sum(self.db.duration(e) for e in self.entries)
-        amount = sum(self.db.amount(e) for e in self.entries)
+        amounts = self.db.amounts(self.entries)
 
         # Tracked, with change vs the previous period of the same kind
         p0, p1 = period_range(self.kind, shift_anchor(self.kind, d0, -1))
@@ -414,10 +439,15 @@ class InsightsPage(QWidget):
             note = f"nothing in the previous {self.kind}"
         self._kpi("tracked", fmt_words(total), note)
 
-        billed_secs = sum(self.db.duration(e) for e in self.entries if self.db.rate_of(e))
-        avg = amount / (billed_secs / 3600) if billed_secs else 0
-        self._kpi("billable", fmt_money(amount, cur),
-                  f"{fmt_money(avg, cur)} per hour on average" if avg else "no rates set")
+        billed: dict[str, int] = {}          # seconds with a rate, per currency
+        for e in self.entries:
+            if self.db.rate_of(e):
+                code = self.db.currency_of(e)
+                billed[code] = billed.get(code, 0) + self.db.duration(e)
+        order = self.db.currencies
+        avg = {code: amounts.get(code, 0.0) / (secs / 3600) for code, secs in billed.items() if secs}
+        self._kpi("billable", fmt_amounts(amounts, short=len(amounts) > 1, order=order, empty="—"),
+                  (fmt_amounts(avg, order=order) + " per hour on average") if avg else "no rates set")
 
         per_day: dict[date, int] = {}
         for e in self.entries:
@@ -466,9 +496,10 @@ class InsightsPage(QWidget):
         groups: dict = {}
         for e in self.entries:
             key, name, color = self._group_key(e)
-            g = groups.setdefault(key, {"name": name, "color": color, "seconds": 0, "amount": 0.0})
+            g = groups.setdefault(key, {"name": name, "color": color, "seconds": 0, "amount": {}})
             g["seconds"] += self.db.duration(e)
-            g["amount"] += self.db.amount(e)
+            for code, value in self.db.amounts([e]).items():
+                g["amount"][code] = g["amount"].get(code, 0.0) + value
         out = sorted(groups.values(), key=lambda g: -g["seconds"])
         for i, g in enumerate(out):
             g["color"] = g["color"] or PALETTE[i % len(PALETTE)]
@@ -476,13 +507,27 @@ class InsightsPage(QWidget):
 
     def _fill_bars(self, cur: str) -> None:
         groups = self._groups()
-        rows = [(g["name"], g["color"], g["seconds"], fmt_money(g["amount"], cur) if g["amount"] else "—")
+        order = self.db.currencies
+        rows = [(g["name"], g["color"], g["seconds"],
+                 fmt_amounts(g["amount"], short=len(g["amount"]) > 1, order=order, empty="—"))
                 for g in groups[:9]]
         rest = groups[9:]
         if rest:
+            merged = self._merge([g["amount"] for g in rest])
             rows.append((f"{len(rest)} more", "#555555", sum(g["seconds"] for g in rest),
-                         fmt_money(sum(g["amount"] for g in rest), cur)))
-        self.bars.set(rows)
+                         fmt_amounts(merged, short=len(merged) > 1, order=order, empty="—")))
+        everything = self._merge([g["amount"] for g in groups])
+        total = (sum(g["seconds"] for g in groups),
+                 fmt_amounts(everything, short=len(everything) > 1, order=order, empty="—"))
+        self.bars.set(rows, total)
+
+    @staticmethod
+    def _merge(amounts: list[dict]) -> dict:
+        out: dict[str, float] = {}
+        for a in amounts:
+            for code, value in a.items():
+                out[code] = out.get(code, 0.0) + value
+        return out
 
     def _fill_strip(self) -> None:
         per: dict = {}
@@ -509,7 +554,8 @@ class InsightsPage(QWidget):
             rows.append([fmt_date(e["start_ts"]), fmt_time(e["start_ts"]),
                          fmt_time(e["end_ts"]) if e["end_ts"] is not None else "running",
                          sec, e["client_name"] or "", e["project_name"] or "", e["task_name"] or "",
-                         e["description"], self.db.rate_of(e), self.db.amount(e)])
+                         e["description"], self.db.rate_of(e), self.db.amount(e),
+                         self.db.currency_of(e) if self.db.rate_of(e) else ""])
         return rows
 
     def export_csv(self) -> None:
@@ -520,11 +566,11 @@ class InsightsPage(QWidget):
             with open(path, "w", newline="", encoding="utf-8-sig") as f:
                 w = csv.writer(f)
                 w.writerow(["Date", "Start", "End", "Duration", "Hours", "Client", "Project", "Task",
-                            "Description", "Rate", "Amount"])
+                            "Description", "Rate", "Amount", "Currency"])
                 for r in self._detail_rows():
                     sec = r[3]
                     w.writerow(r[:3] + [fmt_clock(sec), f"{sec / 3600:.2f}"] + r[4:8]
-                               + ["" if r[8] is None else f"{r[8]:.2f}", f"{r[9]:.2f}"])
+                               + ["" if r[8] is None else f"{r[8]:.2f}", f"{r[9]:.2f}", r[10]])
         except OSError as exc:
             show_error(self, exc)
             return
@@ -541,7 +587,6 @@ class InsightsPage(QWidget):
                                               "Excel workbook (*.xlsx)")
         if not path:
             return
-        cur = self.db.currency
         wb = Workbook()
         head_font, head_fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="2B2B2B")
 
@@ -552,27 +597,34 @@ class InsightsPage(QWidget):
 
         ws = wb.active
         ws.title = "Summary"
-        header(ws, ["Group", "Duration", "Hours", f"Amount, {cur}"])
         groups = self._groups()
+        totals = self._merge([g["amount"] for g in groups])
+        codes = [c for c in self.db.currencies if c in totals] + \
+                sorted(c for c in totals if c not in self.db.currencies)
+        codes = codes or [self.db.currency]
+        header(ws, ["Group", "Duration", "Hours"] + [f"Amount, {c}" for c in codes])
         for g in groups:
-            ws.append([g["name"], g["seconds"] / 86400, round(g["seconds"] / 3600, 2), round(g["amount"], 2)])
+            ws.append([g["name"], g["seconds"] / 86400, round(g["seconds"] / 3600, 2)]
+                      + [round(g["amount"].get(c, 0.0), 2) for c in codes])
         total = sum(g["seconds"] for g in groups)
-        ws.append(["Total", total / 86400, round(total / 3600, 2), round(sum(g["amount"] for g in groups), 2)])
+        ws.append(["Total", total / 86400, round(total / 3600, 2)]
+                  + [round(totals.get(c, 0.0), 2) for c in codes])
         for c in ws[ws.max_row]:
             c.font = Font(bold=True)
         for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
             row[0].number_format = "[h]:mm:ss"
-        for col, width in zip("ABCD", (36, 12, 10, 14)):
+        for col, width in zip("ABCDEFGH", (36, 12, 10, 14, 14, 14, 14, 14)):
             ws.column_dimensions[col].width = width
         ws2 = wb.create_sheet("Detailed")
         header(ws2, ["Date", "Start", "End", "Duration", "Hours", "Client", "Project", "Task",
-                     "Description", f"Rate, {cur}/h", f"Amount, {cur}"])
+                     "Description", "Rate / h", "Amount", "Currency"])
         for r in self._detail_rows():
             sec = r[3]
-            ws2.append(r[:3] + [sec / 86400, round(sec / 3600, 2)] + r[4:8] + [r[8], round(r[9], 2)])
+            ws2.append(r[:3] + [sec / 86400, round(sec / 3600, 2)] + r[4:8]
+                       + [r[8], round(r[9], 2), r[10]])
         for row in ws2.iter_rows(min_row=2, min_col=4, max_col=4):
             row[0].number_format = "[h]:mm:ss"
-        for col, width in zip("ABCDEFGHIJK", (11, 7, 8, 10, 8, 18, 20, 18, 40, 10, 12)):
+        for col, width in zip("ABCDEFGHIJKL", (11, 7, 8, 10, 8, 18, 20, 18, 40, 10, 12, 9)):
             ws2.column_dimensions[col].width = width
         try:
             wb.save(path)

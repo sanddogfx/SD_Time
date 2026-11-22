@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sd_time.db import Database, DuplicateNameError, day_start_ts  # noqa: E402
 from sd_time.util import (day_bounds, fmt_hm, fmt_hms, fmt_hours, fmt_money,  # noqa: E402
-                          parse_duration, parse_rate, period_dates)
+                          parse_clock, parse_duration, parse_rate, period_dates)
 
 
 class DatabaseTest(unittest.TestCase):
@@ -27,8 +27,8 @@ class DatabaseTest(unittest.TestCase):
         self.db.add_entry(6000, 9600, self.p, None)          # no task: not in the result
         totals = self.db.totals_by_task(now=10_000)
         self.assertEqual(set(totals), {self.t1, self.t2})
-        self.assertEqual(totals[self.t1], {"seconds": 3600, "amount": 50.0})
-        self.assertEqual(totals[self.t2], {"seconds": 1800, "amount": 40.0})
+        self.assertEqual(totals[self.t1], {"seconds": 3600, "amount": {"USD": 50.0}})
+        self.assertEqual(totals[self.t2], {"seconds": 1800, "amount": {"USD": 40.0}})
 
     def test_start_stop(self):
         eid = self.db.start(self.p, self.t1, "first pass", now=1000)
@@ -89,7 +89,54 @@ class DatabaseTest(unittest.TestCase):
         self.assertAlmostEqual(self.db.amount(self.db.running_entry(), now=7900), 25.0)
         totals = self.db.totals_by_project(now=7900)
         self.assertEqual(totals[self.p]["seconds"], 3600 + 900)
-        self.assertAlmostEqual(totals[self.p]["amount"], 75.0)
+        self.assertAlmostEqual(totals[self.p]["amount"]["USD"], 75.0)
+
+    def test_currency_follows_the_rate(self):
+        self.db.set_currencies(["USD", "EUR", "gbp"], "USD")
+        self.assertEqual(self.db.currencies, ["USD", "EUR", "GBP"])
+        self.db.update_client(self.c, currency="EUR")                # client: 50 EUR
+        self.db.update_task(self.t2, rate=100, currency="GBP")       # task: 100 GBP
+        t1, t2 = self.db.get_task(self.t1), self.db.get_task(self.t2)
+        self.assertEqual((t1["own_rate"], t1["own_currency"]), (50, "EUR"))
+        self.assertEqual((t2["own_rate"], t2["own_currency"]), (100, "GBP"))
+        self.assertEqual(t2["inherited_currency"], "EUR")
+        self.db.update_project(self.p, rate=60)                      # project rate, no currency
+        self.assertIsNone(self.db.get_project(self.p)["own_currency"])
+        a = self.db.add_entry(0, 3600, self.p, self.t1)              # 60 in the default USD
+        self.db.add_entry(3600, 5400, self.p, self.t2)               # 50 GBP
+        self.db.add_entry(5400, 9000, None, None)                    # no rate: nothing
+        self.assertEqual(self.db.currency_of(self.db.get_entry(a)), "USD")
+        entries = self.db.entries(0, 10_000)
+        self.assertEqual(self.db.amounts(entries), {"USD": 60.0, "GBP": 50.0})
+        self.assertEqual(self.db.totals_by_project(now=10_000)[self.p]["amount"],
+                         {"USD": 60.0, "GBP": 50.0})
+        self.assertEqual(self.db.currencies_in_use(), {"USD", "EUR", "GBP"})
+        self.db.set_currencies(["EUR", "USD"], "EUR")                # new default
+        self.assertEqual(self.db.currencies, ["EUR", "USD"])
+        # the project's 60 was saved without a currency, i.e. in USD: it stays USD
+        self.assertEqual(self.db.get_project(self.p)["own_currency"], "USD")
+        self.assertEqual(self.db.currency_of(self.db.get_entry(a)), "USD")
+        e = self.db.get_entry(self.db.add_entry(9000, 9600, None, None))
+        self.db.set_setting("default_rate", 30)                      # default rate: new default
+        self.assertEqual(self.db.currency_of(e), "EUR")
+        with self.assertRaises(ValueError):
+            self.db.update_task(self.t1, currency="US DOLLAR")
+
+    def test_v4_database_gets_currency_columns(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "old.db"
+            con = sqlite3.connect(path)
+            con.executescript("""
+                CREATE TABLE clients (id INTEGER PRIMARY KEY, name TEXT NOT NULL, rate REAL,
+                    archived INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL);
+                INSERT INTO clients VALUES (1, 'Old', 40, 0, 0);
+                PRAGMA user_version = 4;""")
+            con.close()
+            db = Database(path)
+            self.assertIsNone(db.get_client(1)["currency"])
+            db.update_client(1, currency="EUR")
+            self.assertEqual(db.get_client(1)["currency"], "EUR")
+            db.close()
 
     def test_entries_filters(self):
         other = self.db.add_project("Stock")  # no client
@@ -255,6 +302,13 @@ class UtilTest(unittest.TestCase):
         self.assertEqual(parse_rate("1 200"), 1200)
         with self.assertRaises(ValueError):
             parse_rate("abc")
+        for text, hm in (("1245", (12, 45)), ("930", (9, 30)), ("0930", (9, 30)), ("9", (9, 0)),
+                         ("12", (12, 0)), ("12:45", (12, 45)), ("12.45", (12, 45)),
+                         ("7:05", (7, 5)), (" 23:59 ", (23, 59)), ("0", (0, 0))):
+            self.assertEqual(parse_clock(text), hm, text)
+        for bad in ("", "2460", "25", "12:60", "12345", "ab", "12:3:4", "1:234"):
+            with self.assertRaises(ValueError, msg=bad):
+                parse_clock(bad)
         self.assertEqual(parse_duration("1:30"), 5400)
         self.assertEqual(parse_duration("1:30:15"), 5415)
         self.assertEqual(parse_duration("1.5"), 5400)

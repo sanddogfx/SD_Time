@@ -8,7 +8,8 @@ Times are Unix timestamps (seconds). An entry belongs to the day it started.
 The running timer is the entry with end_ts IS NULL (at most one at a time).
 
 Hourly rate is inherited: task -> project -> client -> default rate (meta table).
-NULL rate means "inherit".
+NULL rate means "inherit". A rate's currency sits on the same row and is inherited with it;
+amounts in different currencies are never added together (see Database.amounts).
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import time
 from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 CLIENTS_DDL = """
 CREATE TABLE IF NOT EXISTS clients (
@@ -79,6 +80,14 @@ PALETTE = [
     "#26a69a", "#ffca28", "#5c6bc0", "#ec407a", "#8d6e63",
 ]
 
+# v5: a rate has a currency, set on the same row (NULL = the default currency). The currency
+# is inherited together with the rate: it comes from the row whose rate applies.
+TASK_CURRENCY = """CASE WHEN t.rate IS NOT NULL THEN t.currency
+                        WHEN p.rate IS NOT NULL THEN p.currency
+                        WHEN c.rate IS NOT NULL THEN c.currency END"""
+PROJECT_CURRENCY = """CASE WHEN p.rate IS NOT NULL THEN p.currency
+                           WHEN c.rate IS NOT NULL THEN c.currency END"""
+
 ENTRY_SELECT = """
 SELECT e.id, e.project_id, e.task_id, e.description, e.start_ts, e.end_ts,
        p.name  AS project_name,
@@ -86,12 +95,13 @@ SELECT e.id, e.project_id, e.task_id, e.description, e.start_ts, e.end_ts,
        t.name  AS task_name,
        c.id    AS client_id,
        c.name  AS client_name,
-       COALESCE(t.rate, p.rate, c.rate) AS own_rate
+       COALESCE(t.rate, p.rate, c.rate) AS own_rate,
+       {cur} AS own_currency
 FROM entries e
 LEFT JOIN projects p ON p.id = e.project_id
 LEFT JOIN tasks    t ON t.id = e.task_id
 LEFT JOIN clients  c ON c.id = p.client_id
-"""
+""".format(cur=TASK_CURRENCY)
 
 _UNSET = object()
 NO_COLOR = "#9a9a9a"
@@ -127,6 +137,16 @@ def _clean_rate(rate) -> float | None:
     if rate < 0:
         raise ValueError("Rate cannot be negative")
     return rate
+
+
+def clean_currency(code) -> str | None:
+    """'eur ' -> 'EUR'. Up to 8 characters, letters, digits or a symbol such as €."""
+    code = (code or "").strip().upper()
+    if not code:
+        return None
+    if len(code) > 8 or any(ch.isspace() for ch in code):
+        raise ValueError(f'"{code}" is not a currency code (e.g. USD, EUR)')
+    return code
 
 
 def _check_unique(rows, name: str, exclude_id: int | None, what: str) -> None:
@@ -178,6 +198,9 @@ class Database:
         self.conn.execute(META_DDL)
         self.conn.execute(FOCUS_DDL)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_focus_start ON focus_sessions(start_ts)")
+        for table in ("clients", "projects", "tasks"):      # v5: the rate's currency
+            if "currency" not in self._columns(table):
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN currency TEXT")
         self.conn.executescript(INDEXES)
         self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.conn.commit()
@@ -220,7 +243,43 @@ class Database:
 
     @property
     def currency(self) -> str:
-        return self.get_setting("currency", "USD") or ""
+        """The default currency: for the default rate and rates set without one."""
+        return self.get_setting("currency", "USD") or "USD"
+
+    @property
+    def currencies(self) -> list[str]:
+        """The user's currencies (Settings), the default one first."""
+        listed = [c for c in (self.get_setting("currencies") or "").split(",") if c]
+        default = self.currency
+        return [default] + [c for c in listed if c != default]
+
+    def set_currencies(self, codes: list[str], default: str) -> None:
+        codes = [c for c in dict.fromkeys(clean_currency(c) for c in codes) if c]
+        default = clean_currency(default) or (codes[0] if codes else "USD")
+        old = self.currency
+        if default != old:
+            # Rates saved without a currency meant the old default: pin them to it, so a new
+            # default doesn't turn 60 USD into 60 EUR. (The default rate follows the default.)
+            with self.conn:
+                for table in ("clients", "projects", "tasks"):
+                    self.conn.execute(f"UPDATE {table} SET currency = ? "
+                                      "WHERE rate IS NOT NULL AND currency IS NULL", (old,))
+        self.set_setting("currency", default)
+        self.set_setting("currencies", ",".join(c for c in codes if c != default))
+
+    def currencies_in_use(self) -> set[str]:
+        """Currencies set on a rate somewhere (can't be removed from the list)."""
+        used = {self.currency}
+        for table in ("clients", "projects", "tasks"):
+            used |= {r[0] for r in self.conn.execute(
+                f"SELECT DISTINCT currency FROM {table} WHERE rate IS NOT NULL AND currency IS NOT NULL")}
+        return used
+
+    def currency_of(self, entry) -> str:
+        """Currency of an entry's amount: of the rate that applies, else the default."""
+        if entry["own_rate"] is not None and entry["own_currency"]:
+            return entry["own_currency"]
+        return self.currency
 
     @property
     def default_rate(self) -> float | None:
@@ -242,17 +301,17 @@ class Database:
     def get_client(self, client_id: int) -> sqlite3.Row | None:
         return self.conn.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
 
-    def add_client(self, name: str, rate: float | None = None) -> int:
+    def add_client(self, name: str, rate: float | None = None, currency: str | None = None) -> int:
         name = _clean_name(name)
         _check_unique(self.clients(True), name, None, "Client")
         with self.conn:
             cur = self.conn.execute(
-                "INSERT INTO clients (name, rate, created) VALUES (?, ?, ?)",
-                (name, _clean_rate(rate), _now(None)))
+                "INSERT INTO clients (name, rate, currency, created) VALUES (?, ?, ?, ?)",
+                (name, _clean_rate(rate), clean_currency(currency), _now(None)))
         return cur.lastrowid
 
     def update_client(self, client_id: int, *, name: str | None = None, rate=_UNSET,
-                      archived: bool | None = None) -> None:
+                      currency=_UNSET, archived: bool | None = None) -> None:
         fields: dict = {}
         if name is not None:
             name = _clean_name(name)
@@ -260,6 +319,8 @@ class Database:
             fields["name"] = name
         if rate is not _UNSET:
             fields["rate"] = _clean_rate(rate)
+        if currency is not _UNSET:
+            fields["currency"] = clean_currency(currency)
         if archived is not None:
             fields["archived"] = int(archived)
         self._update("clients", client_id, fields)
@@ -285,9 +346,9 @@ class Database:
 
     # ============================================================== projects
     _PROJECT_SELECT = """
-        SELECT p.*, c.name AS client_name, c.rate AS client_rate,
-               COALESCE(p.rate, c.rate) AS own_rate
-        FROM projects p LEFT JOIN clients c ON c.id = p.client_id"""
+        SELECT p.*, c.name AS client_name, c.rate AS client_rate, c.currency AS client_currency,
+               COALESCE(p.rate, c.rate) AS own_rate, {cur} AS own_currency
+        FROM projects p LEFT JOIN clients c ON c.id = p.client_id""".format(cur=PROJECT_CURRENCY)
 
     def projects(self, client_id=_UNSET, include_archived: bool = False) -> list[sqlite3.Row]:
         sql = self._PROJECT_SELECT + " WHERE 1 = 1"
@@ -308,7 +369,7 @@ class Database:
                                  (project_id,)).fetchone()
 
     def add_project(self, name: str, client_id: int | None = None, color: str | None = None,
-                    rate: float | None = None) -> int:
+                    rate: float | None = None, currency: str | None = None) -> int:
         name = _clean_name(name)
         _check_unique(self.projects(client_id, True), name, None, "Project")
         if color is None:
@@ -316,13 +377,13 @@ class Database:
             color = PALETTE[count % len(PALETTE)]
         with self.conn:
             cur = self.conn.execute(
-                """INSERT INTO projects (client_id, name, color, rate, created)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (client_id, name, color, _clean_rate(rate), _now(None)))
+                """INSERT INTO projects (client_id, name, color, rate, currency, created)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (client_id, name, color, _clean_rate(rate), clean_currency(currency), _now(None)))
         return cur.lastrowid
 
     def update_project(self, project_id: int, *, name: str | None = None, client_id=_UNSET,
-                       color: str | None = None, rate=_UNSET,
+                       color: str | None = None, rate=_UNSET, currency=_UNSET,
                        archived: bool | None = None) -> None:
         current = self.get_project(project_id)
         if current is None:
@@ -338,6 +399,8 @@ class Database:
             fields["color"] = color
         if rate is not _UNSET:
             fields["rate"] = _clean_rate(rate)
+        if currency is not _UNSET:
+            fields["currency"] = clean_currency(currency)
         if archived is not None:
             fields["archived"] = int(archived)
         self._update("projects", project_id, fields)
@@ -357,26 +420,29 @@ class Database:
 
     def get_task(self, task_id: int) -> sqlite3.Row | None:
         return self.conn.execute(
-            """SELECT t.*, p.name AS project_name, p.color AS project_color, p.client_id,
+            f"""SELECT t.*, p.name AS project_name, p.color AS project_color, p.client_id,
                       c.name AS client_name,
                       COALESCE(p.rate, c.rate) AS inherited_rate,
-                      COALESCE(t.rate, p.rate, c.rate) AS own_rate
+                      {PROJECT_CURRENCY} AS inherited_currency,
+                      COALESCE(t.rate, p.rate, c.rate) AS own_rate,
+                      {TASK_CURRENCY} AS own_currency
                FROM tasks t
                JOIN projects p ON p.id = t.project_id
                LEFT JOIN clients c ON c.id = p.client_id
                WHERE t.id = ?""", (task_id,)).fetchone()
 
-    def add_task(self, project_id: int, name: str, rate: float | None = None) -> int:
+    def add_task(self, project_id: int, name: str, rate: float | None = None,
+                 currency: str | None = None) -> int:
         name = _clean_name(name)
         _check_unique(self.tasks(project_id, True), name, None, "Task")
         with self.conn:
             cur = self.conn.execute(
-                "INSERT INTO tasks (project_id, name, rate, created) VALUES (?, ?, ?, ?)",
-                (project_id, name, _clean_rate(rate), _now(None)))
+                "INSERT INTO tasks (project_id, name, rate, currency, created) VALUES (?, ?, ?, ?, ?)",
+                (project_id, name, _clean_rate(rate), clean_currency(currency), _now(None)))
         return cur.lastrowid
 
     def update_task(self, task_id: int, *, name: str | None = None, rate=_UNSET,
-                    archived: bool | None = None) -> None:
+                    currency=_UNSET, archived: bool | None = None) -> None:
         fields: dict = {}
         if name is not None:
             name = _clean_name(name)
@@ -386,6 +452,8 @@ class Database:
             fields["name"] = name
         if rate is not _UNSET:
             fields["rate"] = _clean_rate(rate)
+        if currency is not _UNSET:
+            fields["currency"] = clean_currency(currency)
         if archived is not None:
             fields["archived"] = int(archived)
         self._update("tasks", task_id, fields)
@@ -514,7 +582,18 @@ class Database:
         return max(0, end - entry["start_ts"])
 
     def amount(self, entry, now: int | None = None) -> float:
+        """Amount in the entry's own currency (currency_of); don't add up across entries."""
         return money(self.duration(entry, now), self.rate_of(entry))
+
+    def amounts(self, entries, now: int | None = None) -> dict[str, float]:
+        """Amounts per currency, {"USD": 120.0, "EUR": 40.0}; currencies with 0 are left out."""
+        out: dict[str, float] = {}
+        for e in entries:
+            value = self.amount(e, now)
+            if value:
+                cur = self.currency_of(e)
+                out[cur] = out.get(cur, 0.0) + value
+        return out
 
     def recent_activities(self, limit: int = 10) -> list[sqlite3.Row]:
         """Distinct recent (project, task, description) combinations for quick start."""
@@ -528,14 +607,13 @@ class Database:
                 ORDER BY x.start_ts DESC LIMIT ?""", (limit,)).fetchall()
 
     def totals_by_project(self, now: int | None = None) -> dict[int | None, dict]:
-        """All-time tracked seconds and amount per project."""
+        """All-time tracked seconds and amounts per currency, per project."""
         now = _now(now)
-        default = self.default_rate
         out: dict[int | None, dict] = {}
         # Aggregate in SQL per (project, task): the rate is the same within a task.
         rows = self.conn.execute(
-            """SELECT e.project_id,
-                      COALESCE(t.rate, p.rate, c.rate) AS own_rate,
+            f"""SELECT e.project_id,
+                      COALESCE(t.rate, p.rate, c.rate) AS own_rate, {TASK_CURRENCY} AS own_currency,
                       SUM(MAX(0, COALESCE(e.end_ts, ?) - e.start_ts)) AS seconds
                FROM entries e
                LEFT JOIN projects p ON p.id = e.project_id
@@ -543,19 +621,20 @@ class Database:
                LEFT JOIN clients  c ON c.id = p.client_id
                GROUP BY e.project_id, e.task_id""", (now,)).fetchall()
         for r in rows:
-            item = out.setdefault(r["project_id"], {"seconds": 0, "amount": 0.0})
-            rate = r["own_rate"] if r["own_rate"] is not None else default
+            item = out.setdefault(r["project_id"], {"seconds": 0, "amount": {}})
             item["seconds"] += r["seconds"]
-            item["amount"] += money(r["seconds"], rate)
+            value = money(r["seconds"], self.rate_of(r))
+            if value:
+                cur = self.currency_of(r)
+                item["amount"][cur] = item["amount"].get(cur, 0.0) + value
         return out
 
     def totals_by_task(self, now: int | None = None) -> dict[int, dict]:
-        """All-time tracked seconds and amount per task."""
+        """All-time tracked seconds and amounts per currency, per task."""
         now = _now(now)
-        default = self.default_rate
         rows = self.conn.execute(
-            """SELECT e.task_id,
-                      COALESCE(t.rate, p.rate, c.rate) AS own_rate,
+            f"""SELECT e.task_id,
+                      COALESCE(t.rate, p.rate, c.rate) AS own_rate, {TASK_CURRENCY} AS own_currency,
                       SUM(MAX(0, COALESCE(e.end_ts, ?) - e.start_ts)) AS seconds
                FROM entries e
                JOIN tasks         t ON t.id = e.task_id
@@ -564,8 +643,9 @@ class Database:
                GROUP BY e.task_id""", (now,)).fetchall()
         out: dict[int, dict] = {}
         for r in rows:
-            rate = r["own_rate"] if r["own_rate"] is not None else default
-            out[r["task_id"]] = {"seconds": r["seconds"], "amount": money(r["seconds"], rate)}
+            value = money(r["seconds"], self.rate_of(r))
+            out[r["task_id"]] = {"seconds": r["seconds"],
+                                 "amount": {self.currency_of(r): value} if value else {}}
         return out
 
     # ======================================================= focus sessions

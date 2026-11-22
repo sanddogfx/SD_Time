@@ -48,7 +48,7 @@ make your potato 45 minutes or your cucumber 10 in **Settings → Focus timer**.
 
 **Track**
 - **A ring timer** that doubles as Pomodoro progress, one big start/stop button, and a **global hotkey** (`Ctrl+Alt+T`) that works from any program.
-- **Mini timer** — a small window that stays on top of other programs: what you're doing, project and task, the time and START/STOP. Drag it anywhere; it remembers its place. Open it with `Ctrl+Alt+M`, the tray menu or the button next to *Add time*.
+- **Mini timer** — a small window that stays on top of other programs: what you're doing, project and task, the time and START/STOP. Drag it anywhere; it remembers its place. Open it with `Ctrl+Alt+M`, the tray menu or the two-windows button on the timer card.
 - **Start again** with one click on your recent activities; **autocomplete** fills in project and task.
 - **Today** as a time ribbon plus compact lines; earlier days fold into one line each and open on click.
 - Accidental start/stop clicks (under 5 seconds) are not saved.
@@ -56,7 +56,7 @@ make your potato 45 minutes or your cucumber 10 in **Settings → Focus timer**.
 **Organise and bill**
 - **Clients → projects → tasks**; client and task are optional. The Projects page lists every
   project with its tasks underneath (own rate, tracked time, amount) and an *Add task* row.
-- **Hourly rates** inherited task → project → client → default, with amounts everywhere.
+- **Hourly rates** inherited task → project → client → default, with amounts everywhere. **Several currencies**: list the ones you bill in (Settings → Currencies) and pick one next to each rate; totals show each currency separately, never converted.
 - Archive instead of delete; deleting keeps your time entries.
 
 **See where the time went**
@@ -104,7 +104,7 @@ Your data is never sent anywhere. To back up, copy that folder.
 |---|---|
 | Start / stop from anywhere | `Ctrl+Alt+T` (change it in Settings) |
 | Show / hide the window | left-click the tray icon |
-| Mini timer on top | `Ctrl+Alt+M`, *Mini timer* in the tray menu, or the button next to *Add time* |
+| Mini timer on top | `Ctrl+Alt+M`, *Mini timer* in the tray menu, or the two-windows button on the timer card |
 | Quick actions | right-click the tray icon |
 | Continue a past activity | *Start again* card, ▷ on its row, or *Continue* in the tray menu |
 | Fix a forgotten timer | drag its block in Week, or click the time range |

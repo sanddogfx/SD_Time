@@ -127,8 +127,8 @@ _NAV_SVG = {
     "chevron-down": '<path d="M6 9l6 6 6-6"/>',
     "left": '<path d="M15 6l-6 6 6 6"/>',
     "download": '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
-    "mini": '<rect x="3.5" y="5" width="17" height="14" rx="2"/>'
-            '<rect x="12" y="12" width="6" height="4.5" rx="1"/>',
+    "mini": '<path d="M9 9.5H5.5a2 2 0 0 0-2 2v6.5a2 2 0 0 0 2 2H13a2 2 0 0 0 2-2V14"/>'   # a window
+            '<rect x="9" y="4" width="11.5" height="10" rx="2"/>',                           # on top
     "expand": '<path d="M13.5 4.5h6v6M19.5 4.5l-7.5 7.5"/>'
               '<path d="M18 14v3.5a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2H10"/>',
     "gap": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/><path d="M4 4l3 3"/>',

@@ -128,6 +128,8 @@ QComboBox::drop-down, QDateEdit::drop-down, QDateTimeEdit::drop-down {{
     subcontrol-origin: padding; subcontrol-position: center right; width: 26px; border: none; }}
 QComboBox::down-arrow, QDateEdit::down-arrow, QDateTimeEdit::down-arrow {{
     image: url("{_ui_asset('chevron-down.svg')}"); width: 12px; height: 12px; }}
+QComboBox:disabled {{ color: {C['faint']}; background: transparent; }}
+QComboBox::down-arrow:disabled {{ image: none; }}
 QComboBox QAbstractItemView {{ background: {C['card']}; border: 1px solid {C['border']};
                                selection-background-color: {C['hover']}; }}
 QLineEdit#Flat {{ background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px;
@@ -162,6 +164,9 @@ QPushButton#Primary:hover {{ background: {C['accent_hover']}; border-color: {C['
 QPushButton#Stop {{ background: {C['danger']}; border: 1px solid {C['danger']}; color: white;
                     font-weight: 600; padding: 8px 20px; }}
 QPushButton#Stop:hover {{ background: {C['danger_hover']}; border-color: {C['danger_hover']}; }}
+QPushButton#Danger {{ background: transparent; border: 1px solid transparent; color: {C['danger']};
+                      padding: 8px 14px; }}
+QPushButton#Danger:hover {{ border-color: {C['danger']}; color: {C['danger_hover']}; }}
 QPushButton#Link {{ background: transparent; border: none; color: {C['accent_text']}; padding: 4px 6px;
                     min-height: 0; }}
 QPushButton#Link:hover {{ text-decoration: underline; }}
@@ -174,6 +179,10 @@ QPushButton#GroupHead:hover {{ background: {C['row_hover']}; }}
 QPushButton#Chip {{ background: {C['raised']}; border: 1px solid #323232; border-radius: 5px;
                     padding: 7px 12px; min-height: 0; text-align: left; }}
 QPushButton#Chip:hover {{ border-color: {C['accent_text']}; }}
+QPushButton#Currency, QPushButton#CurrencyDefault {{ background: {C['raised']}; border: 1px solid #323232;
+                    border-radius: 5px; padding: 6px 12px; min-height: 0; font-weight: 600; }}
+QPushButton#Currency:hover, QPushButton#CurrencyDefault:hover {{ border-color: {C['accent_text']}; }}
+QPushButton#CurrencyDefault {{ background: {C['accent_soft']}; border-color: #3f5226; color: {C['accent_text']}; }}
 QPushButton#MenuButton {{ padding-right: 32px; }}
 QPushButton::menu-indicator {{ image: url("{_ui_asset('chevron-down.svg')}"); width: 12px; height: 12px;
     subcontrol-origin: padding; subcontrol-position: center right; right: 12px; }}
@@ -206,6 +215,9 @@ QToolButton#Nav {{ background: {C['card']}; border: 1px solid {C['control_border
 QToolButton#Nav:hover {{ background: {C['hover']}; }}
 QToolButton#Nav:checked {{ background: {C['accent_soft']}; border-color: #3f5226; }}
 QToolButton#Nav:disabled {{ background: #1a1a1a; border-color: #262626; }}
+QToolButton#CardIcon {{ background: transparent; border: none; border-radius: 5px; }}
+QToolButton#CardIcon:hover {{ background: {C['raised']}; }}
+QToolButton#CardIcon:checked {{ background: {C['accent_soft']}; }}
 QToolButton#PomoChip {{ background: {C['raised']}; border: none; border-radius: 5px; padding: 5px 12px 5px 8px;
                         color: #bdbdbd; font-weight: 600; }}
 QToolButton#PomoChip:hover {{ color: {C['text']}; }}

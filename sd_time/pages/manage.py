@@ -8,18 +8,19 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QFormLayout, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
     QSpinBox,
-    QLineEdit, QMenu, QScrollArea, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget,
+    QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import __version__, autostart
 from ..dialogs import ClientDialog, ProjectDialog, TaskDialog
 from ..icons import color_icon, timer_pixmap
 from ..theme import C
-from ..util import fmt_clock, fmt_money, fmt_rate
+from ..db import clean_currency
+from ..util import fmt_amounts, fmt_clock, fmt_money, fmt_rate
 from ..pomodoro import KINDS
 from ..updates import RELEASES_URL, REPO_URL
-from ..widgets import (RateEdit, Stepper, bulk_fill, button, card, confirm, label,
+from ..widgets import (RateEdit, Stepper, bulk_fill, button, card, clear_layout, confirm, label,
                        segmented, show_error)
 
 ROLE = Qt.ItemDataRole.UserRole
@@ -145,7 +146,7 @@ class ProjectsPage(QWidget):
                     continue
             item = self._project_item(p, totals, cur, default)
             self.tree.addTopLevelItem(item)
-            inherited = p["rate"] if p["rate"] is not None else p["client_rate"]
+            inherited = (p["own_rate"], p["own_currency"] or cur)    # what a task without a rate gets
             for t in tasks:
                 item.addChild(self._task_item(t, p, inherited, task_totals, cur, default))
             if not p["archived"]:
@@ -167,14 +168,14 @@ class ProjectsPage(QWidget):
 
     def _project_item(self, p, totals, cur, default) -> QTreeWidgetItem:
         if p["rate"] is not None:
-            rate, rate_muted = fmt_rate(p["rate"], cur), False
+            rate, rate_muted = fmt_rate(p["rate"], p["currency"] or cur), False
         elif p["client_rate"] is not None:
-            rate, rate_muted = f"{fmt_rate(p['client_rate'], cur)} (client)", True
+            rate, rate_muted = f"{fmt_rate(p['client_rate'], p['client_currency'] or cur)} (client)", True
         else:
             rate, rate_muted = (f"{fmt_rate(default, cur)} (default)" if default else "—"), True
-        tot = totals.get(p["id"], {"seconds": 0, "amount": 0.0})
+        tot = totals.get(p["id"], {"seconds": 0, "amount": {}})
         item = QTreeWidgetItem([p["name"], p["client_name"] or "—", rate, fmt_clock(tot["seconds"]),
-                                fmt_money(tot["amount"], cur) if tot["amount"] else "—",
+                                fmt_amounts(tot["amount"], order=self.db.currencies, empty="—"),
                                 "Archived" if p["archived"] else "Active"])
         item.setData(0, KIND, "project")
         item.setData(0, ROLE, p["id"])
@@ -196,13 +197,13 @@ class ProjectsPage(QWidget):
 
     def _task_item(self, t, p, inherited, task_totals, cur, default) -> QTreeWidgetItem:
         if t["rate"] is not None:
-            rate, rate_muted = fmt_rate(t["rate"], cur), False
+            rate, rate_muted = fmt_rate(t["rate"], t["currency"] or cur), False
         else:
-            base = inherited if inherited is not None else default
-            rate, rate_muted = (fmt_rate(base, cur) if base else "—"), True
-        tot = task_totals.get(t["id"], {"seconds": 0, "amount": 0.0})
+            base, base_cur = inherited if inherited[0] is not None else (default, cur)
+            rate, rate_muted = (fmt_rate(base, base_cur) if base else "—"), True
+        tot = task_totals.get(t["id"], {"seconds": 0, "amount": {}})
         item = QTreeWidgetItem([t["name"], "", rate, fmt_clock(tot["seconds"]) if tot["seconds"] else "—",
-                                fmt_money(tot["amount"], cur) if tot["amount"] else "—",
+                                fmt_amounts(tot["amount"], order=self.db.currencies, empty="—"),
                                 "Archived" if t["archived"] else ""])
         item.setData(0, KIND, "task")
         item.setData(0, ROLE, t["id"])
@@ -392,16 +393,19 @@ class ClientsPage(QWidget):
             name.setData(ROLE, c["id"])
             self.table.setItem(r, 0, name)
             if c["rate"] is not None:
-                self.table.setItem(r, 1, cell(fmt_rate(c["rate"], cur), True))
+                self.table.setItem(r, 1, cell(fmt_rate(c["rate"], c["currency"] or cur), True))
             else:
                 self.table.setItem(r, 1, cell(f"{fmt_rate(default, cur)} (default)"
                                               if default else "—", True, muted=True))
             projects = self.db.projects(c["id"], include_archived=True)
             seconds = sum(totals.get(p["id"], {}).get("seconds", 0) for p in projects)
-            amount = sum(totals.get(p["id"], {}).get("amount", 0.0) for p in projects)
+            amounts: dict[str, float] = {}
+            for p in projects:
+                for code, value in totals.get(p["id"], {}).get("amount", {}).items():
+                    amounts[code] = amounts.get(code, 0.0) + value
             self.table.setItem(r, 2, cell(str(len(projects)), True))
             self.table.setItem(r, 3, cell(fmt_clock(seconds), True))
-            self.table.setItem(r, 4, cell(fmt_money(amount, cur) if amount else "—", True))
+            self.table.setItem(r, 4, cell(fmt_amounts(amounts, order=self.db.currencies, empty="—"), True))
             self.table.setItem(r, 5, cell("Archived" if c["archived"] else "Active",
                                           muted=bool(c["archived"])))
 
@@ -465,11 +469,14 @@ class SettingsPage(QWidget):
         self.ctl = ctl
         self.db = ctl.db
 
-        self.currency = QLineEdit()
-        self.currency.setMaxLength(8)
-        self.currency.setFixedWidth(120)
+        # Currencies: chips, the default one first; edited here, stored on Save.
+        self._currencies: list[str] = []
+        self._default_currency = ""
+        self.currency_row = QHBoxLayout()
+        self.currency_row.setSpacing(6)
         self.default_rate = RateEdit(None, "No default rate")
         self.default_rate.setFixedWidth(200)
+        self.default_rate_cur = label("", "Muted")
         self.hotkey = QKeySequenceEdit()
         self.hotkey.setMaximumSequenceLength(1)
         self.hotkey.setFixedWidth(200)
@@ -485,10 +492,17 @@ class SettingsPage(QWidget):
         form = QFormLayout(box)
         form.setContentsMargins(20, 20, 20, 20)
         form.setSpacing(14)
-        form.addRow("Currency", self.currency)
-        form.addRow("Default hourly rate", self.default_rate)
-        form.addRow("", label("Used when neither the task, project nor client has a rate.",
+        form.addRow("Currencies", self.currency_row)
+        form.addRow("", label("The ones you bill in. Rates pick one of them; the first is the "
+                              "default. Click a currency to make it the default or remove it.",
                               "Small"))
+        rate_row = QHBoxLayout()
+        rate_row.addWidget(self.default_rate)
+        rate_row.addWidget(self.default_rate_cur)
+        rate_row.addStretch(1)
+        form.addRow("Default hourly rate", rate_row)
+        form.addRow("", label("Used when neither the task, project nor client has a rate. "
+                              "It is in the default currency.", "Small"))
         hk_row = QHBoxLayout()
         hk_row.addWidget(self.hotkey)
         hk_row.addWidget(button("Clear", self.hotkey.clear))
@@ -502,7 +516,17 @@ class SettingsPage(QWidget):
         mk_row.addStretch(1)
         form.addRow("Mini timer hotkey", mk_row)
         form.addRow("", label("Shows or hides the small always-on-top timer. It also opens from "
-                              "the tray menu and the button next to Add time.", "Small"))
+                              "the tray menu and the button on the timer card.", "Small"))
+        self.day_start = Stepper(0, 23, ":00", width=64)
+        self.day_end = Stepper(1, 24, ":00", width=64)
+        day_row = QHBoxLayout()
+        day_row.addWidget(self.day_start)
+        day_row.addWidget(label("–", "Muted"))
+        day_row.addWidget(self.day_end)
+        day_row.addStretch(1)
+        form.addRow("Day view", day_row)
+        form.addRow("", label("Hours the Today ribbon and the Week calendar always show. Entries "
+                              "outside them still widen the view.", "Small"))
         form.addRow("", self.close_to_tray)
         form.addRow("", self.autostart)
         dir_row = QHBoxLayout()
@@ -621,12 +645,17 @@ class SettingsPage(QWidget):
         root.addWidget(scroll)
 
     def refresh(self) -> None:
-        self.currency.setText(self.db.currency)
+        self._currencies = self.db.currencies
+        self._default_currency = self.db.currency
+        self._render_currencies()
         rate = self.db.default_rate
         self.default_rate.setText("" if rate is None else f"{rate:g}")
         self.hotkey.setKeySequence(QKeySequence(self.ctl.hotkey_text()))
         self.mini_hotkey.setKeySequence(QKeySequence(self.ctl.mini_hotkey_text()))
         self.close_to_tray.setChecked(self.ctl.settings.value("close_to_tray", True, type=bool))
+        start, end = self.ctl.day_hours()
+        self.day_start.setValue(start)
+        self.day_end.setValue(end)
         self.autostart.setChecked(autostart.is_enabled())
         self.data_dir.setText(str(Path(self.ctl.settings.fileName()).parent))
         self.auto_updates.setChecked(self.ctl.auto_update_check())
@@ -638,6 +667,57 @@ class SettingsPage(QWidget):
         self._show_kind()
         self.pomo_auto.setChecked(cfg.auto_next)
         self.pomo_sound.setChecked(cfg.sound)
+
+    # ---- currencies
+    def _render_currencies(self) -> None:
+        clear_layout(self.currency_row)
+        for code in self._currencies:
+            default = code == self._default_currency
+            chip = QPushButton(f"{code}  ·  default" if default else code)
+            chip.setObjectName("CurrencyDefault" if default else "Currency")
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.clicked.connect(lambda _=False, c=code, b=chip: self._currency_menu(c, b))
+            self.currency_row.addWidget(chip)
+        add = button("+ Add", self._add_currency, "Link")
+        add.setToolTip("Add a currency, e.g. EUR")
+        self.currency_row.addWidget(add)
+        self.currency_row.addStretch(1)
+        self.default_rate_cur.setText(f"{self._default_currency} / h")
+
+    def _currency_menu(self, code: str, anchor: QWidget) -> None:
+        menu = QMenu(self)
+        make_default = menu.addAction("Make default", lambda: self._set_default_currency(code))
+        make_default.setEnabled(code != self._default_currency)
+        remove = menu.addAction("Remove", lambda: self._remove_currency(code))
+        remove.setEnabled(code != self._default_currency)
+        menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+        menu.deleteLater()
+
+    def _add_currency(self) -> None:
+        text, ok = QInputDialog.getText(self, "Add currency", "Currency code (e.g. EUR, GBP, RUB):")
+        if not ok:
+            return
+        try:
+            code = clean_currency(text)
+        except ValueError as exc:
+            show_error(self, exc)
+            return
+        if code and code not in self._currencies:
+            self._currencies.append(code)
+            self._render_currencies()
+
+    def _set_default_currency(self, code: str) -> None:
+        self._default_currency = code
+        self._currencies = [code] + [c for c in self._currencies if c != code]
+        self._render_currencies()
+
+    def _remove_currency(self, code: str) -> None:
+        if code in self.db.currencies_in_use():
+            show_error(self, f"{code} is used by a client, project or task rate. "
+                             "Change those rates first.")
+            return
+        self._currencies.remove(code)
+        self._render_currencies()
 
     def _steppers(self) -> dict:
         return {"focus_min": self.pomo_focus, "short_break_min": self.pomo_short,
@@ -682,7 +762,12 @@ class SettingsPage(QWidget):
         except ValueError as exc:
             show_error(self, exc)
             return
-        self.db.set_setting("currency", self.currency.text().strip() or "USD")
+        if self.day_end.value() <= self.day_start.value():
+            show_error(self, "Day view: the end hour must be later than the start hour.")
+            return
+        self.ctl.settings.setValue("view/day_start", self.day_start.value())
+        self.ctl.settings.setValue("view/day_end", self.day_end.value())
+        self.db.set_currencies(self._currencies, self._default_currency)
         self.db.set_setting("default_rate", rate)
         self.ctl.settings.setValue("close_to_tray", self.close_to_tray.isChecked())
         self.ctl.settings.setValue("updates/auto", self.auto_updates.isChecked())

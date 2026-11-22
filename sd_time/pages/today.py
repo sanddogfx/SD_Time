@@ -9,7 +9,7 @@ import math
 import time
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QPointF, QRectF, QSize, QStringListModel, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, QStringListModel, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QCompleter, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea,
@@ -21,8 +21,9 @@ from ..db import NO_COLOR, day_start_ts
 from ..icons import color_icon, filled_pixmap, hover_icon, line_pixmap, timer_pixmap
 from ..pomodoro import ASK, BREAK, FOCUS, KINDS
 from ..theme import C
-from ..util import day_title, fmt_clock, fmt_hm, fmt_money, fmt_time, fmt_words, week_start
-from ..widgets import ProjectPicker, button, card, clear_layout, label
+from ..util import (day_title, fmt_amounts, fmt_clock, fmt_hm, fmt_money, fmt_time, fmt_words,
+                    short_money, week_start)
+from ..widgets import NoSqueeze, ProjectPicker, button, card, clear_layout, label
 
 
 def repolish(widget: QWidget, name: str) -> None:
@@ -45,8 +46,6 @@ def icon_button(icon: str, tooltip: str, slot=None, size: int = 18, dpr: float =
     return b
 
 
-def short_money(value: float, currency: str) -> str:
-    return f"{value:,.0f} {currency}".strip() if value >= 100 else fmt_money(value, currency)
 
 
 # ------------------------------------------------------------------ painted widgets
@@ -163,7 +162,7 @@ class EntryLine(QFrame):
             self.time_btn.setStyleSheet(f"color: {C['accent_soft_text']};")
         self.desc = QLineEdit(entry["description"], placeholderText="Add description")
         self.desc.setObjectName("Flat")
-        self.desc.setMinimumWidth(110)
+        self.desc.setMinimumWidth(80)
         self.desc.setCursorPosition(0)          # show the start of long descriptions
         self.desc.editingFinished.connect(self._save_description)
         if running:
@@ -178,13 +177,17 @@ class EntryLine(QFrame):
         self.duration.setFixedWidth(52)
         self.duration.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         amount = db.amount(entry)
-        self.amount = label(short_money(amount, db.currency) if amount else "", "Muted")
+        money_text = short_money(amount, db.currency_of(entry)) if amount else ""
+        self.amount = label(money_text, "Muted")
+        if amount:
+            self.duration.setToolTip(money_text)
         self.amount.setFixedWidth(72)
         self.amount.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         play = icon_button("play", "Continue this activity",
                            lambda: self.ctl.start(entry["project_id"], entry["task_id"],
                                                   entry["description"]), 15, dpr)
-        play.setVisible(not running)
+        self.running = running
+        self.play = play
         more = icon_button("more", "More", lambda: self._show_menu(more), 17, dpr)
 
         lay = QHBoxLayout(self)
@@ -199,16 +202,16 @@ class EntryLine(QFrame):
         lay.addWidget(more)
         if running:
             lay.setStretchFactor(self.desc, 1)
+        self.set_compact(page.compact)
+
+    def set_compact(self, on: bool) -> None:
+        """Narrow list: drop the amount (it moves to the duration's tooltip) and the ▷ button
+        (Continue stays in the ⋮ menu)."""
+        self.amount.setVisible(not on)
+        self.play.setVisible(not on and not self.running)
 
     def _show_menu(self, anchor: QWidget) -> None:
-        eid = self.entry["id"]
-        menu = QMenu(self)
-        menu.addAction("Edit…", lambda: self.ctl.edit_entry(eid))
-        menu.addAction("Duplicate", lambda: self.ctl.duplicate_entry(eid))
-        menu.addSeparator()
-        menu.addAction("Delete", lambda: self.ctl.delete_entry(eid))
-        menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
-        menu.deleteLater()
+        self.ctl.entry_menu(self.entry["id"], anchor.mapToGlobal(anchor.rect().bottomLeft()), self)
 
     def _save_description(self) -> None:
         text = self.desc.text().strip()
@@ -238,9 +241,8 @@ class DayGroup(QWidget):
         self._set_chevron(False)
         title = label(day_title(d))
         total = sum(db.duration(e) for e in entries)
-        amount = sum(db.amount(e) for e in entries)
-        summary = label(fmt_words(total) + (f" · {short_money(amount, db.currency)}" if amount else ""),
-                        "MonoMuted")
+        money_text = fmt_amounts(db.amounts(entries), short=True, order=db.currencies)
+        summary = label(fmt_words(total) + (f" · {money_text}" if money_text else ""), "MonoMuted")
         hl = QHBoxLayout(self.head)
         hl.setContentsMargins(8, 0, 10, 0)
         hl.setSpacing(10)
@@ -289,8 +291,9 @@ class TrackerPage(QWidget):
         self.open_days: set[date] = set()
         self._running_line: EntryLine | None = None
         self._today_done = 0
-        self._today_amount = 0.0
+        self._today_amounts: dict[str, float] = {}
         self._ribbon_segments: list = []
+        self.compact = False        # narrow Today list: rows drop the amount and ▷
         dpr = self.devicePixelRatioF()
 
         # ---- header
@@ -303,19 +306,9 @@ class TrackerPage(QWidget):
         head_text.setSpacing(2)
         head_text.addWidget(self.title_label)
         head_text.addWidget(self.subtitle)
-        self.mini_btn = QToolButton()
-        self.mini_btn.setObjectName("Nav")
-        self.mini_btn.setCheckable(True)
-        self.mini_btn.setFixedSize(theme.CTRL_H, theme.CTRL_H)
-        self.mini_btn.setIcon(hover_icon("mini", dpr, 18, normal="#c9c9c9"))
-        self.mini_btn.setIconSize(QSize(18, 18))
-        self.mini_btn.setToolTip("Mini timer: a small window that stays on top")
-        self.mini_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.mini_btn.clicked.connect(lambda: self.ctl.toggle_mini())
         header = QHBoxLayout()
         header.setSpacing(10)
         header.addLayout(head_text, 1)
-        header.addWidget(self.mini_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(add_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # ---- Now card
@@ -335,10 +328,22 @@ class TrackerPage(QWidget):
         self.pomo_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._pomo_kind_shown = None
         self.pomo_label = label("", "Small")
+        # Mini timer: a flat icon at the end of the top row, as tall as the focus chip.
+        self.mini_btn = QToolButton()
+        self.mini_btn.setObjectName("CardIcon")
+        self.mini_btn.setCheckable(True)
+        self.mini_btn.setFixedSize(30, 30)
+        self.mini_btn.setIcon(hover_icon("mini", dpr, 18, normal="#c9c9c9"))
+        self.mini_btn.setIconSize(QSize(18, 18))
+        self.mini_btn.setToolTip("Mini timer: a small window that stays on top")
+        self.mini_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mini_btn.clicked.connect(lambda: self.ctl.toggle_mini())
         top = QHBoxLayout()
+        top.setSpacing(8)
         top.addWidget(self.pomo_btn)
         top.addStretch(1)
         top.addWidget(self.pomo_label)
+        top.addWidget(self.mini_btn)
 
         self.ring = RingTimer(184)
         self.desc = QLineEdit(placeholderText="What are you working on?")
@@ -406,7 +411,7 @@ class TrackerPage(QWidget):
         self.again_lay.setSpacing(8)
 
         # The left column scrolls when the window is short, instead of squeezing the ring.
-        left_box = QWidget()
+        left_box = NoSqueeze()
         left = QVBoxLayout(left_box)
         left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(16)
@@ -434,8 +439,9 @@ class TrackerPage(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.content = QWidget()
+        self.content = NoSqueeze()
         self.scroll.setWidget(self.content)
+        self.scroll.viewport().installEventFilter(self)
         tl = QVBoxLayout(today)
         tl.setContentsMargins(22, 20, 22, 14)
         tl.setSpacing(14)
@@ -611,8 +617,8 @@ class TrackerPage(QWidget):
         # Info line under the project chip
         if running is not None:
             amount = self.db.amount(running)
-            parts = [running["client_name"] or "", (fmt_money(amount, self.db.currency) + " so far")
-                     if amount else ""]
+            parts = [running["client_name"] or "",
+                     (fmt_money(amount, self.db.currency_of(running)) + " so far") if amount else ""]
             self.info.setText(" · ".join(p for p in parts if p))
         else:
             self.info.setText("")
@@ -620,14 +626,18 @@ class TrackerPage(QWidget):
         if running is not None and self._running_line is not None:
             self._running_line.duration.setText(fmt_hm(self.db.duration(running)))
             amount = self.db.amount(running)
-            self._running_line.amount.setText(short_money(amount, self.db.currency) if amount else "")
+            self._running_line.amount.setText(
+                short_money(amount, self.db.currency_of(running)) if amount else "")
         total = self._today_done + (self.db.duration(running) if running is not None
                                     and self._started_today(running) else 0)
-        amount = self._today_amount + (self.db.amount(running) if running is not None
-                                       and self._started_today(running) else 0)
+        amounts = dict(self._today_amounts)
+        if running is not None and self._started_today(running):
+            for cur, value in self.db.amounts([running]).items():
+                amounts[cur] = amounts.get(cur, 0.0) + value
+        money_text = fmt_amounts(amounts, short=True, order=self.db.currencies)
         self.pill_total.setText(fmt_words(total))
-        self.pill_amount.setText(short_money(amount, self.db.currency))
-        self.pill_amount.setVisible(amount > 0)
+        self.pill_amount.setText(money_text)
+        self.pill_amount.setVisible(bool(money_text))
         if running is not None and self._ribbon_segments:
             self._update_ribbon()
 
@@ -647,10 +657,10 @@ class TrackerPage(QWidget):
         ws = week_start(today)
         week = self.db.entries(day_start_ts(ws), day_start_ts(today + timedelta(days=1)))
         week_total = sum(self.db.duration(e) for e in week)
-        week_amount = sum(self.db.amount(e) for e in week)
+        week_money = fmt_amounts(self.db.amounts(week), short=True, order=self.db.currencies)
         sub = f"Week {today.isocalendar()[1]} · {fmt_words(week_total)} tracked"
-        if week_amount:
-            sub += f" · {short_money(week_amount, self.db.currency)}"
+        if week_money:
+            sub += f" · {week_money}"
         self.subtitle.setText(sub)
         self._rebuild_again()
         self._rebuild_list()
@@ -664,22 +674,37 @@ class TrackerPage(QWidget):
         if not recent:
             self.again_lay.addWidget(label("Your recent activities will appear here.", "Small"))
         for a in recent:
-            text = a["description"] or a["project_name"] or "No description"
-            sub = a["project_name"] if a["description"] and a["project_name"] else ""
+            # "Description · Project · Task"; without a description the project and task lead.
+            where = " · ".join(x for x in (a["project_name"], a["task_name"]) if x)
+            text = a["description"] or where or "No description"
+            sub = where if a["description"] else ""
+            full = text + (f"   ·   {sub}" if sub else "")
             b = QPushButton()
             b.setObjectName("Chip")
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setIcon(color_icon(a["project_color"] or NO_COLOR, 9))
             b.setIconSize(QSize(9, 9))
-            b.setText(f"  {text}" + (f"   ·   {sub}" if sub else ""))
-            b.setToolTip("Start this again")
+            room = 380 - 40 - 24 - 9 - 16          # card width − margins − padding − icon − gap
+            b.setText("  " + b.fontMetrics().elidedText(full, Qt.TextElideMode.ElideRight, room))
+            b.setToolTip(f"Start again: {full}")
             b.clicked.connect(lambda _=False, a=a: self.ctl.start(a["project_id"], a["task_id"],
                                                                   a["description"]))
             self.again_lay.addWidget(b)
 
+    COMPACT_BELOW = 600     # Today list width (px) under which rows go compact
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize and obj is self.scroll.viewport():
+            compact = obj.width() < self.COMPACT_BELOW
+            if compact != self.compact:
+                self.compact = compact
+                for line in self.content.findChildren(EntryLine):
+                    line.set_compact(compact)
+        return super().eventFilter(obj, event)
+
     def _rebuild_list(self) -> None:
         scroll_pos = self.scroll.verticalScrollBar().value()
-        content = QWidget()
+        content = NoSqueeze()
         lay = QVBoxLayout(content)
         lay.setContentsMargins(0, 0, 6, 0)
         lay.setSpacing(0)
@@ -693,7 +718,7 @@ class TrackerPage(QWidget):
         todays = sorted(by_day.pop(today, []), key=lambda e: e["start_ts"], reverse=True)
         self._running_line = None
         self._today_done = sum(self.db.duration(e) for e in todays if e["end_ts"] is not None)
-        self._today_amount = sum(self.db.amount(e) for e in todays if e["end_ts"] is not None)
+        self._today_amounts = self.db.amounts([e for e in todays if e["end_ts"] is not None])
         for e in todays:
             line = EntryLine(self, e, running=e["end_ts"] is None)
             if e["end_ts"] is None:
@@ -735,7 +760,7 @@ class TrackerPage(QWidget):
         today0 = day_start_ts(date.today())
         now = time.time()
         segs = []
-        lo, hi = 8.0, 19.0
+        lo, hi = self.ctl.day_hours()
         for e, color in self._ribbon_segments:
             end_ts = e["end_ts"] if e["end_ts"] is not None else now
             s, t = (e["start_ts"] - today0) / 3600, (end_ts - today0) / 3600

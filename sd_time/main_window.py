@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QPoint, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu,
@@ -536,13 +536,36 @@ class MainWindow(QMainWindow):
         entry = self.db.get_entry(entry_id)
         if entry is None:
             return
-        dlg = EntryDialog(self.db, self, entry=entry)
-        if dlg.exec():
+        dlg = EntryDialog(self.db, self, entry=entry,
+                          on_delete=lambda: self._confirm_delete(entry, dlg))
+        result = dlg.exec()
+        if result == EntryDialog.DELETED:
+            self.db.delete_entry(entry_id)
+            self.notify()
+        elif result:
             try:
                 self.db.update_entry(entry_id, **dlg.values())
             except ValueError as exc:
                 show_error(self, exc)
             self.notify()
+
+    def entry_menu(self, entry_id: int, pos: QPoint, parent: QWidget) -> None:
+        """The ⋮ / right-click menu of one entry (Tracker list, Week calendar)."""
+        e = self.db.get_entry(entry_id)
+        if e is None:
+            return
+        running = e["end_ts"] is None
+        menu = QMenu(parent)
+        if not running:
+            menu.addAction("Continue", lambda: self.start(e["project_id"], e["task_id"],
+                                                          e["description"]))
+        menu.addAction("Edit…", lambda: self.edit_entry(entry_id))
+        if not running:
+            menu.addAction("Duplicate", lambda: self.duplicate_entry(entry_id))
+        menu.addSeparator()
+        menu.addAction("Delete…", lambda: self.delete_entry(entry_id))
+        menu.exec(pos)
+        menu.deleteLater()
 
     def duplicate_entry(self, entry_id: int) -> None:
         e = self.db.get_entry(entry_id)
@@ -555,11 +578,14 @@ class MainWindow(QMainWindow):
         e = self.db.get_entry(entry_id)
         if e is None:
             return
-        text = (f"Delete this time entry?\n\n{self._entry_title(e)}\n"
-                f"{fmt_time(e['start_ts'])} · {fmt_clock(self.db.duration(e))}")
-        if confirm(self, "Delete entry", text):
+        if self._confirm_delete(e):
             self.db.delete_entry(entry_id)
             self.notify()
+
+    def _confirm_delete(self, e, parent: QWidget | None = None) -> bool:
+        text = (f"Delete this time entry?\n\n{self._entry_title(e)}\n"
+                f"{fmt_time(e['start_ts'])} · {fmt_clock(self.db.duration(e))}")
+        return confirm(parent or self, "Delete entry", text)
 
     def hotkey_text(self) -> str:
         return self.settings.value("hotkey", DEFAULT_HOTKEY, type=str)
@@ -573,6 +599,15 @@ class MainWindow(QMainWindow):
             show_error(self, self.hotkey.error or "Couldn't register the hotkey.")
             return False
         return True
+
+    def day_hours(self) -> tuple[int, int]:
+        """Hours the Today ribbon and the Week calendar always show (Settings → Day view).
+        Entries outside them, and the running timer, still stretch the view."""
+        start = self.settings.value("view/day_start", 8, type=int)
+        end = self.settings.value("view/day_end", 19, type=int)
+        if not 0 <= start < end <= 24:
+            return 8, 19
+        return start, end
 
     def mini_hotkey_text(self) -> str:
         return self.settings.value("mini_hotkey", DEFAULT_MINI_HOTKEY, type=str)
