@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-installer-8db837?style=for-the-badge"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.5.0-555?style=for-the-badge">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.6.0-555?style=for-the-badge">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-555?style=for-the-badge">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-555?style=for-the-badge"></a>
 </p>

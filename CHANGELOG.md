@@ -5,6 +5,10 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-22
+
+Several currencies, quicker edits.
+
 ### Added
 - **Delete from the calendar**: right-click a block on the Week page for *Continue*, *Edit…*,
   *Duplicate* and *Delete…* (the same menu as ⋮ in the Tracker list).
