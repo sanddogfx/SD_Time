@@ -29,6 +29,8 @@ New features bump MINOR, fixes bump PATCH. The version lives in `sd_time/__init_
   the break countdown) and got a clearer icon: a window on top of another.
 
 ### Fixed
+- Settings on a narrow window: the *Focus timer* card moves under the others instead of
+  being cut off on the right (with *Save* pushed out of view).
 - *Start again* shows the task too ("Daifuku · Rigging"), so two tasks of one project no
   longer look the same. Long lines end in "…"; the full text is in the tooltip.
 - Tracker on a small window: the left column scrolls instead of squashing the task name and

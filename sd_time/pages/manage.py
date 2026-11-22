@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt, QUrl
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QFormLayout, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
+    QAbstractItemView, QBoxLayout, QCheckBox, QFormLayout, QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel,
     QSpinBox,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -623,8 +623,10 @@ class SettingsPage(QWidget):
         head.addStretch(1)
         head.addWidget(button("Save", self.save, "Primary"))    # in view however long the page is
         inner.addLayout(head)
-        cards = QHBoxLayout()
+        # Side by side when there is room; on a narrow window the Focus timer card goes under.
+        cards = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         cards.setSpacing(14)
+        self._cards, self._left_col, self._right_col = cards, None, right
         left = QVBoxLayout()
         left.setSpacing(14)
         left.addWidget(box)
@@ -632,6 +634,7 @@ class SettingsPage(QWidget):
         left.addStretch(1)
         cards.addLayout(left, 3)
         cards.addLayout(right, 2)
+        self._left_col = left
         inner.addLayout(cards)
         for hint in content.findChildren(QLabel, "Small"):
             hint.setWordWrap(True)
@@ -643,6 +646,21 @@ class SettingsPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.addWidget(scroll)
+        self._scroll = scroll
+        scroll.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Resize and obj is self._scroll.viewport():
+            self._arrange_cards(obj.width())
+        return super().eventFilter(obj, event)
+
+    def _arrange_cards(self, width: int) -> None:
+        side_by_side = (self._left_col.minimumSize().width() + self._right_col.minimumSize().width()
+                        + self._cards.spacing() + 60)        # + the page's side margins
+        direction = (QBoxLayout.Direction.LeftToRight if width >= side_by_side
+                     else QBoxLayout.Direction.TopToBottom)
+        if self._cards.direction() != direction:
+            self._cards.setDirection(direction)
 
     def refresh(self) -> None:
         self._currencies = self.db.currencies
